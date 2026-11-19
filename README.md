@@ -11,6 +11,7 @@ This fork is used by LoreWeaver Table. It changes the library in these ways (eac
 | `throwVector.js`: a throw's direction is random all the way round, and its strength stays close to the same | The original took a throw's strength from the length of a random arrow, so some throws barely left the hand, and three throws in four came from the left |
 | New options `throw_spread`, `throw_start`, `wall_bounce` | Starting the dice at 0.9 of the way out put them partly inside the walls (at 0.93), pinning some at the edge. Measured: with `throw_start: 0.75` and `wall_bounce: 0.4`, dice that barely moved fell from 5.2% to 0.3% |
 | New option `shine` (0 to 1) | Metal, glass and wood had their reflections switched off, so they looked almost like plastic. `shine` gives them a soft room to reflect |
+| New option `label_glow` (0 to 1) | On metal, the numbers light themselves (an emissive map of the numbers alone, scaled by how metallic the material is), because reflections made painted numbers almost unreadable |
 | New option `assetUrl(path)` | Lets an app hand over each texture and sound file itself, e.g. as data URLs in a one-file build |
 | `updateConfig` works | It called `Object.apply`, which does nothing, so `sounds`, `volume`, `strength` and the rest could not be changed after start |
 | Sounds load when switched on, and again for dice of a new material; a missing set is skipped | Before, a material without loaded sounds threw an error, and "perfectmetal" asked for files that don't exist |

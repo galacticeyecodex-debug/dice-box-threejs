@@ -221,6 +221,15 @@ class DiceFactory {
 				canvasTextures = this.createTextMaterial(diceobj, labels, i, size, margin, this.dice_texture_rand, this.label_color_rand, this.label_outline_rand, this.dice_color_rand, allowcache);
 				mat.map = canvasTextures.composite;
 
+				// LoreWeaver fork: on metal, the numbers light themselves, scaled by how metallic it is, because
+				// a metal face reflects the room and darkens painted numbers. Plastic, glass and wood are unchanged.
+				const metalness = MATERIALTYPES[this.dice_material]?.metalness || 0;
+				if (this.label_glow > 0 && metalness > 0 && canvasTextures.glow && mat.emissive) {
+					mat.emissiveMap = canvasTextures.glow;
+					mat.emissive = new THREE.Color(0xffffff);
+					mat.emissiveIntensity = this.label_glow * metalness;
+				}
+
 				if (this.bumpMapping) {
 					if (false) {
 						mat.bumpScale = 0.5;
@@ -297,6 +306,10 @@ class DiceFactory {
 		contextBump.globalAlpha = 0;
 		contextBump.clearRect(0, 0, canvasBump.width, canvasBump.height);
 
+		// LoreWeaver fork: the numbers alone, lit on black, so metal dice can make their numbers glow.
+		let canvasGlow = document.createElement("canvas");
+		let contextGlow = canvasGlow.getContext("2d", {alpha: false});
+
 		let ts;
 
 		if (diceobj.shape == 'd4') {
@@ -307,6 +320,9 @@ class DiceFactory {
 
 		canvas.width = canvas.height = ts;
 		canvasBump.width = canvasBump.height = ts;
+		canvasGlow.width = canvasGlow.height = ts;
+		contextGlow.fillStyle = "#000000";
+		contextGlow.fillRect(0, 0, ts, ts);
 
 		// create color
 		context.fillStyle = backcolor;
@@ -336,6 +352,9 @@ class DiceFactory {
 
 		contextBump.textAlign = "center";
 		contextBump.textBaseline = "middle";
+
+		contextGlow.textAlign = "center";
+		contextGlow.textBaseline = "middle";
 
 		if (diceobj.shape != 'd4') {
 
@@ -374,6 +393,10 @@ class DiceFactory {
 					contextBump.translate(hw, hh);
 					contextBump.rotate(degrees * (Math.PI / 180));
 					contextBump.translate(-hw, -hh);
+
+					contextGlow.translate(hw, hh);
+					contextGlow.rotate(degrees * (Math.PI / 180));
+					contextGlow.translate(-hw, -hh);
 				}
 			}
 
@@ -398,6 +421,7 @@ class DiceFactory {
 
 				context.font =  fontsize+ 'pt '+diceobj.font;
 				contextBump.font =  fontsize+ 'pt '+diceobj.font;
+				contextGlow.font =  fontsize+ 'pt '+diceobj.font;
 
 				let lineHeight = context.measureText("M").width * 1.4;
 				let textlines = text.split("\n");
@@ -407,6 +431,7 @@ class DiceFactory {
 					fontsize = fontsize / textlines.length;
 					context.font =  fontsize+ 'pt '+diceobj.font;
 					contextBump.font =  fontsize+ 'pt '+diceobj.font;
+					contextGlow.font =  fontsize+ 'pt '+diceobj.font;
 					lineHeight = context.measureText("M").width * 1.2;
 					textstarty -= (lineHeight * textlines.length) / 2;
 				}
@@ -436,9 +461,13 @@ class DiceFactory {
 					contextBump.fillStyle = "#000000";
 					contextBump.fillText(textlines[i], textstartx, textstarty);
 
+					contextGlow.fillStyle = forecolor;
+					contextGlow.fillText(textlines[i], textstartx, textstarty);
+
 					if (textline == '6' || textline == '9') {
 						context.fillText('  .', textstartx, textstarty);
 						contextBump.fillText('  .', textstartx, textstarty);
+						contextGlow.fillText('  .', textstartx, textstarty);
 					}
 					textstarty += (lineHeight * 1.5);
 				}
@@ -450,6 +479,7 @@ class DiceFactory {
 
 			context.font =  (ts / 128 * 24)+'pt '+diceobj.font;
 			contextBump.font =  (ts / 128 * 24)+'pt '+diceobj.font;
+			contextGlow.font =  (ts / 128 * 24)+'pt '+diceobj.font;
 
 			//draw the numbers
 			for (let i=0; i<text.length; i++) {
@@ -475,6 +505,9 @@ class DiceFactory {
 
 					contextBump.fillStyle = "#000000";
 					contextBump.fillText(text[i], hw, hh - ts * 0.3);
+
+					contextGlow.fillStyle = forecolor;
+					contextGlow.fillText(text[i], hw, hh - ts * 0.3);
 				}
 
 				//rotate 1/3 for next label
@@ -485,6 +518,10 @@ class DiceFactory {
 				contextBump.translate(hw, hh);
 				contextBump.rotate(Math.PI * 2 / 3);
 				contextBump.translate(-hw, -hh);
+
+				contextGlow.translate(hw, hh);
+				contextGlow.rotate(Math.PI * 2 / 3);
+				contextGlow.translate(-hw, -hh);
 			}
 
 			//debug side numbering
@@ -500,13 +537,15 @@ class DiceFactory {
 			bumpMap = null;
 		}
 
+		var glowMap = new THREE.CanvasTexture(canvasGlow);
+
 		if (allowcache) {
 			// cache new texture
 			this.cache_misses++;
-			this.materials_cache[cachestring] = {composite:compositetexture,bump:bumpMap};
+			this.materials_cache[cachestring] = {composite:compositetexture,bump:bumpMap,glow:glowMap};
 		}
 
-		return {composite:compositetexture,bump:bumpMap};
+		return {composite:compositetexture,bump:bumpMap,glow:glowMap};
 	}
 
 	applyColorSet(colordata) {

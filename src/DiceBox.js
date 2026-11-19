@@ -39,6 +39,7 @@ const defaultConfig = {
 	throw_start: 0.9, // LoreWeaver fork: how far out the dice start, as a share of the way to the edge
 	wall_bounce: 1.0, // LoreWeaver fork: how much the dice bounce off the walls, 0 (dead) to 1 (perfect)
 	shine: 0, // LoreWeaver fork: how much metal, glass and wood dice reflect a soft room, 0 (none, the original) to 1
+	label_glow: 0, // LoreWeaver fork: how brightly the numbers on metal dice light themselves, 0 (the original) to 1
 	assetUrl: null, // LoreWeaver fork: optional function(path) giving the URL for a texture or sound, e.g. a data URL
 	iterationLimit: 1000,
 	onRollComplete: () => {},
@@ -129,7 +130,8 @@ class DiceBox {
 		this.DiceColors = new DiceColors({assetPath: this.assetPath, assetUrl: this.assetUrl});
 		this.DiceFactory = new DiceFactory({
 			baseScale: this.baseScale,
-			shine: this.shine
+			shine: this.shine,
+			label_glow: this.label_glow
 		});
 		this.DiceFactory.setBumpMapping(true);
 
@@ -351,7 +353,13 @@ class DiceBox {
 		if (!meshes.length || !this.renderer || typeof requestAnimationFrame !== 'function') return Promise.resolve()
 		const glow = new THREE.Color(color)
 		const materials = meshes.flatMap((mesh) => (Array.isArray(mesh.material) ? mesh.material : [mesh.material])).filter((material) => material.emissive)
-		materials.forEach((material) => { material.emissive = glow.clone(); material.emissiveIntensity = 0 })
+		// While it bursts the whole die glows; a die whose numbers light themselves (label_glow) gets that back after.
+		const before = materials.map((material) => ({ map: material.emissiveMap, intensity: material.emissiveIntensity }))
+		materials.forEach((material) => {
+			material.emissive = glow.clone()
+			material.emissiveIntensity = 0
+			if (material.emissiveMap) { material.emissiveMap = null; material.needsUpdate = true }
+		})
 		const reach = this.display.scale * 5
 		const sparkMap = this.sparkTexture()
 		const bursts = meshes.map((mesh) => {
@@ -398,7 +406,16 @@ class DiceBox {
 					points.geometry.dispose()
 					points.material.dispose()
 				})
-				materials.forEach((material) => { material.emissiveIntensity = 0.25 })
+				// Afterwards: a soft gold glow, or, on a die whose numbers light themselves, gold numbers.
+				materials.forEach((material, i) => {
+					if (before[i].map) {
+						material.emissiveMap = before[i].map
+						material.emissiveIntensity = Math.max(before[i].intensity, 0.6)
+						material.needsUpdate = true
+					} else {
+						material.emissiveIntensity = 0.25
+					}
+				})
 				this.renderer.render(this.scene, this.camera)
 				resolve()
 			}
