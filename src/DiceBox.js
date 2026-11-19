@@ -456,6 +456,32 @@ class DiceBox {
 	}
 
 	/**
+	 * LoreWeaver fork: lets a die's shadow fade. A shadow map can't be see-through, so the die's shadow is drawn
+	 * with a fine, even pattern of holes that grows as the die fades (a dither); the soft shadow filter blurs it
+	 * into a lighter shadow. At 1 the shadow is whole; at 0 it's gone.
+	 * @param {THREE.Mesh} mesh - A die.
+	 * @returns {{value:number}} The shadow's strength, 0 to 1, to change as the die fades.
+	 */
+	shadowFade(mesh){
+		if (mesh.customDepthMaterial?.userData?.shadowFade) return mesh.customDepthMaterial.userData.shadowFade
+		const fade = { value: 1 }
+		const material = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking })
+		material.userData.shadowFade = fade
+		material.onBeforeCompile = (shader) => {
+			shader.uniforms.shadowStrength = fade
+			// Interleaved gradient noise: an even scatter of thresholds, so the holes spread smoothly.
+			shader.fragmentShader = shader.fragmentShader.replace('void main() {', [
+				'uniform float shadowStrength;',
+				'float lwDither(vec2 p) { return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715)))); }',
+				'void main() {',
+				'	if (lwDither(gl_FragCoord.xy) >= shadowStrength) discard;',
+			].join('\n'))
+		}
+		mesh.customDepthMaterial = material
+		return fade
+	}
+
+	/**
 	 * LoreWeaver fork: fades dice that don't count, such as the lower die when the higher one is kept. The fade
 	 * eases in over `duration`, so the die sinks away rather than vanishing.
 	 * @param {Array<number>} ids - The dice to fade, by their place in the throw (0 is the first die).
@@ -467,22 +493,22 @@ class DiceBox {
 		const meshes = ids.map((id) => this.diceList[id]).filter(Boolean)
 		const materials = meshes.flatMap((mesh) => (Array.isArray(mesh.material) ? mesh.material : [mesh.material]))
 		const from = materials.map((material) => material.opacity)
+		// Each die's shadow fades with it, at the same rate (see shadowFade).
+		const shadows = meshes.map((mesh) => this.shadowFade(mesh))
+		const shadowFrom = shadows.map((fade) => fade.value)
 		materials.forEach((material) => { material.transparent = true })
 		const paint = (share) => {
 			// Smoothstep: starts and ends gently.
 			const eased = share * share * (3 - 2 * share)
 			materials.forEach((material, i) => { material.opacity = from[i] + (opacity - from[i]) * eased })
-			// A shadow can't fade, so it goes once the die is half gone, not with a pop at the very end.
-			meshes.forEach((mesh) => {
-				const first = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material
-				mesh.castShadow = first.opacity >= 0.5
-			})
+			shadows.forEach((fade, i) => { fade.value = shadowFrom[i] + (opacity - shadowFrom[i]) * eased })
 			if (this.renderer) this.renderer.render(this.scene, this.camera)
 		}
 		return new Promise((resolve) => {
 			const done = () => {
 				paint(1)
-				meshes.forEach((mesh) => { mesh.castShadow = opacity >= 0.6 })
+				// A die faded right away casts no shadow at all.
+				meshes.forEach((mesh) => { mesh.castShadow = this.shadows && opacity > 0 })
 				if (this.renderer) this.renderer.render(this.scene, this.camera)
 				resolve()
 			}
