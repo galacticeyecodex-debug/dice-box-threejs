@@ -88,6 +88,14 @@ export const TEXTURELIST = {
 		source_bump: 'textures/wood.webp',
 		material: 'wood'
 	},
+	// LoreWeaver fork: the library shipped stone.webp but never listed it.
+	'stone': {
+		name: 'Stone',
+		composite: 'multiply',
+		source: 'textures/stone.webp',
+		source_bump: 'textures/stone.webp',
+		material: 'wood'
+	},
 	'metal': {
 		name: 'Stainless Steel',
 		composite: 'multiply',

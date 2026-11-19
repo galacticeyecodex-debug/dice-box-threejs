@@ -16129,6 +16129,13 @@ const ks = {
     source_bump: "textures/wood.webp",
     material: "wood"
   },
+  stone: {
+    name: "Stone",
+    composite: "multiply",
+    source: "textures/stone.webp",
+    source_bump: "textures/stone.webp",
+    material: "wood"
+  },
   metal: {
     name: "Stainless Steel",
     composite: "multiply",
