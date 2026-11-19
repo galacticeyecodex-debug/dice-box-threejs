@@ -339,6 +339,17 @@ class DiceBox {
 	}
 
 	/**
+	 * LoreWeaver fork: fades every die away, then clears them, instead of clearDice's instant vanish.
+	 * @param {number} [duration=650] - How long the fade takes, in milliseconds.
+	 * @returns {Promise<void>} Resolves once the dice are gone.
+	 */
+	async fadeAwayDice(duration = 650){
+		const all = this.diceList.map((_, index) => index)
+		if (all.length) await this.fadeDice(all, 0, duration)
+		this.clearDice()
+	}
+
+	/**
 	 * LoreWeaver fork: celebrates dice, such as a die that landed on a critical face. Each die pops, pulses with a
 	 * warm glow, and throws off a burst of sparks; afterwards it keeps a soft glow until the dice are cleared.
 	 * @param {Array<number>} ids - The dice to celebrate, by their place in the throw (0 is the first die).
@@ -461,6 +472,11 @@ class DiceBox {
 			// Smoothstep: starts and ends gently.
 			const eased = share * share * (3 - 2 * share)
 			materials.forEach((material, i) => { material.opacity = from[i] + (opacity - from[i]) * eased })
+			// A shadow can't fade, so it goes once the die is half gone, not with a pop at the very end.
+			meshes.forEach((mesh) => {
+				const first = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material
+				mesh.castShadow = first.opacity >= 0.5
+			})
 			if (this.renderer) this.renderer.render(this.scene, this.camera)
 		}
 		return new Promise((resolve) => {
