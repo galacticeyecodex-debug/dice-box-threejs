@@ -2,6 +2,7 @@
 import {DicePreset} from './DicePreset.js'
 import {MATERIALTYPES} from "./const/materialtypes"
 import {DICE_GEOM} from "./const/dice"
+import { applyGlow, glowLevel } from "./glow.js"
 
 import * as THREE from "three"
 import * as CANNON from "cannon-es"
@@ -231,6 +232,7 @@ class DiceFactory {
 
 				canvasTextures = this.createTextMaterial(diceobj, labels, i, size, margin, texture, this.label_color_rand, this.label_outline_rand, this.edge_color_rand, allowcache);
 				mat.map = canvasTextures.composite;
+				this.applyGlow(mat, canvasTextures);
 
 			} else {
 				canvasTextures = this.createTextMaterial(diceobj, labels, i, size, margin, this.dice_texture_rand, this.label_color_rand, this.label_outline_rand, this.dice_color_rand, allowcache);
@@ -244,6 +246,7 @@ class DiceFactory {
 					mat.emissive = new THREE.Color(0xffffff);
 					mat.emissiveIntensity = this.label_glow * metalness;
 				}
+				this.applyGlow(mat, canvasTextures);
 
 				if (this.bumpMapping) {
 					if (false) {
@@ -571,6 +574,17 @@ class DiceFactory {
 		this.dice_texture = colordata.texture;
 		this.dice_material = colordata?.texture?.material || 'none';
 		this.edge_color = colordata.hasOwnProperty("edge") ? colordata.edge:colordata.background;
+		// LoreWeaver fork: how brightly the set lights its own faces, 0 (the original) to 1 (src/glow.js).
+		this.dice_glow = glowLevel(colordata.glow);
+	}
+
+	/**
+	 * LoreWeaver fork: lights a face with its own colours when the set has glow (src/glow.js).
+	 * @param {object} mat - The face's material.
+	 * @param {object} canvasTextures - The face's textures, from createTextMaterial.
+	 */
+	applyGlow(mat, canvasTextures) {
+		applyGlow(mat, canvasTextures?.composite, this.dice_glow);
 	}
 
 	// pass in colorset data from dice-box

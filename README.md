@@ -22,6 +22,7 @@ This fork is used by LoreWeaver Table. It changes the library in these ways (eac
 | New method `fadeAwayDice(duration)` | Every die fades away, then the dice are cleared, instead of vanishing in one frame |
 | A fading die's shadow fades with it (`shadowFade`) | A shadow map can't be see-through, so a fading die's shadow is drawn with a fine, even dither of holes that grows at the same rate as the die fades; the soft shadow filter blurs it into a lighter shadow. Before, the shadow stayed solid and then vanished |
 | New method `celebrateDice(ids, {color, duration, sparks})` | A die on a special face (such as a critical) pops, pulses with a warm glow and throws off sparks, then keeps a soft glow |
+| Colorsets take `glow` (0 to 1) and `light` (a colour) (`glow.js`, `lightGlow.js`) | A die of light should look lit. A glowing die lights its own faces, so it shines whatever the room's light, and casts light around it: a soft pool on the table that follows it, spreads while it's in the air and fades with it, a faint halo, and a small real light so nearby dice catch the glow. The table is often the page behind a transparent canvas, so the pool is drawn. Above about 0.4, a white die washes out and its numbers are lost |
 | `dist` is committed | The app installs the fork straight from GitHub |
 
 Tests: `npm test` (Node's own test runner).

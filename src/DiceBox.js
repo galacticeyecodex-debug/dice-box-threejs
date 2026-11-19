@@ -9,6 +9,7 @@ import { THEMES } from './const/themes.js';
 
 import { debounce } from "./helpers"
 import { throwVector, DEFAULT_THROW_SPREAD } from "./throwVector.js"
+import { glowFrame, lightOf } from "./lightGlow.js"
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js"
 
 /** LoreWeaver fork: how many sound files each dice material and table surface has. */
@@ -162,6 +163,8 @@ class DiceBox {
 		this.renderer.shadowMap.enabled = this.shadows;
 		this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 		this.renderer.setClearColor(0x000000, 0);
+		// LoreWeaver fork: the light a glowing die casts follows it on every frame, however the frame is drawn.
+		this.scene.onBeforeRender = () => this.updateDieLights();
 
 		// LoreWeaver fork: a soft room for metal, glass and wood to reflect. Without it they all look matte.
 		if (this.shine > 0) {
@@ -853,6 +856,8 @@ class DiceBox {
 			dicemesh.castShadow = this.shadows;
 			this.scene.add(dicemesh);
 			this.diceList.push(dicemesh);
+			// LoreWeaver fork: a die whose set glows lights the table around it.
+			this.addDieLight(dicemesh, look ?? this.colorData);
 		} else {
 			dicemesh = reset
 			// dicemesh.result = [];
@@ -1119,11 +1124,93 @@ class DiceBox {
 		return notationVectors
 	}
 
+	/**
+	 * LoreWeaver fork: the soft round picture a die's pool of light and halo are drawn with, bright in the middle
+	 * and gone at the edge. Made once.
+	 * @returns {object} The texture.
+	 */
+	glowTexture() {
+		if (this.glowTextureCache) return this.glowTextureCache;
+		const size = 128;
+		const canvas = document.createElement('canvas');
+		canvas.width = size;
+		canvas.height = size;
+		const context = canvas.getContext('2d');
+		const gradient = context.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+		gradient.addColorStop(0, 'rgba(255,255,255,1)');
+		gradient.addColorStop(0.3, 'rgba(255,255,255,0.55)');
+		gradient.addColorStop(0.65, 'rgba(255,255,255,0.15)');
+		gradient.addColorStop(1, 'rgba(255,255,255,0)');
+		context.fillStyle = gradient;
+		context.fillRect(0, 0, size, size);
+		this.glowTextureCache = new THREE.CanvasTexture(canvas);
+		return this.glowTextureCache;
+	}
+
+	/**
+	 * LoreWeaver fork: gives a die whose set glows the light it casts (src/lightGlow.js): a pool on the table, a
+	 * halo just behind it, and a small real light riding with it. A die without glow gets nothing.
+	 * @param {object} dicemesh - The die.
+	 * @param {object} colorset - Its colorset.
+	 */
+	addDieLight(dicemesh, colorset) {
+		const { level, color } = lightOf(colorset);
+		if (!(level > 0) || !this.scene) return;
+		if (!dicemesh.geometry.boundingSphere) dicemesh.geometry.computeBoundingSphere();
+		const radius = dicemesh.geometry.boundingSphere?.radius || 1;
+		const tint = new THREE.Color(color);
+		const look = { map: this.glowTexture(), color: tint, transparent: true, opacity: 0, depthWrite: false };
+		const pool = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial(look));
+		const halo = new THREE.Sprite(new THREE.SpriteMaterial(look));
+		const light = new THREE.PointLight(tint, 0, radius * 12, 2);
+		this.scene.add(pool, halo, light);
+		dicemesh.userData.dieLight = { level, radius, pool, halo, light };
+	}
+
+	/**
+	 * LoreWeaver fork: moves each die's light with it, and fades it as the die fades. Runs before every frame.
+	 */
+	updateDieLights() {
+		for (const dicemesh of this.diceList) {
+			const glow = dicemesh.userData?.dieLight;
+			if (!glow) continue;
+			const material = Array.isArray(dicemesh.material) ? dicemesh.material[0] : dicemesh.material;
+			const opacity = dicemesh.visible === false ? 0 : (material?.opacity ?? 1);
+			const { x, y, z } = dicemesh.position;
+			const frame = glowFrame({ level: glow.level, radius: glow.radius, height: Math.max(0, z - glow.radius), opacity });
+			glow.pool.position.set(x, y, 0.5);
+			glow.pool.scale.set(frame.pool.scale, frame.pool.scale, 1);
+			glow.pool.material.opacity = frame.pool.opacity;
+			// Just behind the die, seen from above, so it rings the die without veiling it.
+			glow.halo.position.set(x, y, Math.max(0.5, z - glow.radius * 0.9));
+			glow.halo.scale.set(frame.halo.scale, frame.halo.scale, 1);
+			glow.halo.material.opacity = frame.halo.opacity;
+			glow.light.position.set(x, y, z);
+			glow.light.intensity = frame.light.intensity;
+			glow.light.distance = frame.light.distance;
+		}
+	}
+
+	/**
+	 * LoreWeaver fork: takes a die's light away with it.
+	 * @param {object} dicemesh - The die.
+	 */
+	removeDieLight(dicemesh) {
+		const glow = dicemesh?.userData?.dieLight;
+		if (!glow) return;
+		this.scene.remove(glow.pool, glow.halo, glow.light);
+		glow.pool.geometry.dispose();
+		glow.pool.material.dispose();
+		glow.halo.material.dispose();
+		delete dicemesh.userData.dieLight;
+	}
+
 	clearDice() {
 		this.running = false;
 		let dice;
 		while (dice = this.diceList.pop()) {
-			this.scene.remove(dice); 
+			this.removeDieLight(dice);
+			this.scene.remove(dice);
 			if (dice.body) this.world.removeBody(dice.body);
 		}
 		this.renderer.render(this.scene, this.camera);
@@ -1328,6 +1415,7 @@ class DiceBox {
 			diceIdArray.forEach(dieId => {
 				const mesh = this.diceList[dieId]
 				if (mesh.body) this.world.removeBody(mesh.body);
+				this.removeDieLight(mesh);
 				this.scene.remove(mesh);
 				mesh.storeRolledValue('remove');
 				results.push(this.getDiceResults(dieId))
