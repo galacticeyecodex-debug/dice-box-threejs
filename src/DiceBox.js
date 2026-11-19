@@ -798,7 +798,12 @@ class DiceBox {
 		let dicemesh
 		
 		if(!reset) {
-			dicemesh = this.DiceFactory.create(vectordata.type, this.colorData);
+			// LoreWeaver fork: a die can have its own look and labels in this throw (see roll's looks option).
+			const place = this.diceList.length;
+			const look = this.dieLooks?.[place];
+			if (look) this.DiceFactory.applyColorSet(look);
+			dicemesh = this.DiceFactory.create(vectordata.type, this.colorData, this.dieLabels?.[place] ?? null);
+			if (look) this.DiceFactory.applyColorSet(this.colorData);
 			if(!dicemesh) return;
 			dicemesh.notation = vectordata;
 			dicemesh.result = [];
@@ -1132,7 +1137,19 @@ class DiceBox {
 		return result
 	}
 
-	async roll(notationSting){
+	/**
+	 * Throws dice.
+	 * @param {string} notationSting - Dice notation, with forced faces after @ if wanted ("3d6@4,1,6").
+	 * @param {object} [options] - LoreWeaver fork.
+	 * @param {Array<object|null>} [options.looks] - A custom colorset for each die in throw order (the library
+	 *   groups dice by type, in the order types first appear), or null to use the box's own. A look may carry
+	 *   `labels`, the die's face labels lowest value first, such as ["M","2","3","4","5","6"].
+	 * @returns {Promise<object>} The results.
+	 */
+	async roll(notationSting, { looks = null } = {}){
+		// LoreWeaver fork: every die can have its own look in one throw, such as the red, white and red d616.
+		this.dieLooks = looks ? await Promise.all(looks.map((look) => (look ? this.DiceColors.makeColorSet(look) : null))) : null
+		this.dieLabels = looks ? looks.map((look) => look?.labels ?? null) : null
 		this.notationVectors = this.startClickThrow(notationSting)
 		if(this.notationVectors){
 			// const DL = this.diceList

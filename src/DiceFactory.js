@@ -50,10 +50,25 @@ class DiceFactory {
 		this.materials_cache = {};
 	}
 
+	/**
+	 * LoreWeaver fork: the same die with its own face labels, such as a d6 whose 1 shows "M". Only what's drawn
+	 * changes: the die's values, and so its results, stay the same. d4s keep their own labels.
+	 * @param {DicePreset} diceobj - The die.
+	 * @param {Array<string>|null} faces - A label for each face, lowest value first.
+	 * @returns {DicePreset} A labelled copy, or the die itself when no labels are given.
+	 */
+	labelledPreset(diceobj, faces) {
+		if (!Array.isArray(faces) || !faces.length || diceobj.shape === 'd4') return diceobj;
+		const blanks = ['d2', 'd10'].includes(diceobj.shape) ? [''] : ['', ''];
+		return Object.assign(Object.create(Object.getPrototypeOf(diceobj)), diceobj, { labels: [...blanks, ...faces] });
+	}
+
 	// returns a dicemesh (THREE.Mesh) object
-	create(type) {
+	// LoreWeaver fork: labels, optional, gives this one die its own face labels (see labelledPreset).
+	create(type, _colorData, labels = null) {
 		let diceobj = this.get(type);
 		if (!diceobj) return null;
+		const shown = this.labelledPreset(diceobj, labels);
 
 		let geom = this.geometries[type];
 		if(!geom) {
@@ -64,7 +79,7 @@ class DiceFactory {
 
 		this.setMaterialInfo();
 
-		let dicemesh = new THREE.Mesh(geom, this.createMaterials(diceobj, this.baseScale / 2, 1.0));
+		let dicemesh = new THREE.Mesh(geom, this.createMaterials(shown, this.baseScale / 2, 1.0));
 		dicemesh.result = [];
 		dicemesh.shape = diceobj.shape;
 		dicemesh.rerolls = 0;
