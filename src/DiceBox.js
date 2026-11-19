@@ -337,23 +337,41 @@ class DiceBox {
 	}
 
 	/**
-	 * LoreWeaver fork: fades dice that don't count, such as the lower die when the higher one is kept.
+	 * LoreWeaver fork: fades dice that don't count, such as the lower die when the higher one is kept. The fade
+	 * eases in over `duration`, so the die sinks away rather than vanishing.
 	 * @param {Array<number>} ids - The dice to fade, by their place in the throw (0 is the first die).
-	 * @param {number} [opacity=0.3] - How solid they stay, from 0 (gone) to 1 (unchanged).
+	 * @param {number} [opacity=0.3] - How solid they end, from 0 (gone) to 1 (unchanged).
+	 * @param {number} [duration=900] - How long the fade takes, in milliseconds. 0 fades at once.
+	 * @returns {Promise<void>} Resolves when the fade has finished.
 	 */
-	fadeDice(ids = [], opacity = 0.3){
-		ids.forEach((id) => {
-			const mesh = this.diceList[id]
-			if (!mesh) return
-			const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
-			materials.forEach((material) => {
-				material.transparent = true
-				material.opacity = opacity
-				material.needsUpdate = true
-			})
-			mesh.castShadow = opacity >= 0.6
+	fadeDice(ids = [], opacity = 0.3, duration = 900){
+		const meshes = ids.map((id) => this.diceList[id]).filter(Boolean)
+		const materials = meshes.flatMap((mesh) => (Array.isArray(mesh.material) ? mesh.material : [mesh.material]))
+		const from = materials.map((material) => material.opacity)
+		materials.forEach((material) => { material.transparent = true })
+		const paint = (share) => {
+			// Smoothstep: starts and ends gently.
+			const eased = share * share * (3 - 2 * share)
+			materials.forEach((material, i) => { material.opacity = from[i] + (opacity - from[i]) * eased })
+			if (this.renderer) this.renderer.render(this.scene, this.camera)
+		}
+		return new Promise((resolve) => {
+			const done = () => {
+				paint(1)
+				meshes.forEach((mesh) => { mesh.castShadow = opacity >= 0.6 })
+				if (this.renderer) this.renderer.render(this.scene, this.camera)
+				resolve()
+			}
+			if (!meshes.length || !(duration > 0) || typeof requestAnimationFrame !== 'function') { done(); return }
+			const start = performance.now()
+			const step = (now) => {
+				const share = Math.min(1, (now - start) / duration)
+				if (share >= 1) { done(); return }
+				paint(share)
+				requestAnimationFrame(step)
+			}
+			requestAnimationFrame(step)
 		})
-		if (this.renderer) this.renderer.render(this.scene, this.camera)
 	}
 
 	setDimensions(dimensions) {

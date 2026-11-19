@@ -15,7 +15,7 @@ This fork is used by LoreWeaver Table. It changes the library in these ways (eac
 | `updateConfig` works | It called `Object.apply`, which does nothing, so `sounds`, `volume`, `strength` and the rest could not be changed after start |
 | Sounds load when switched on, and again for dice of a new material; a missing set is skipped | Before, a material without loaded sounds threw an error, and "perfectmetal" asked for files that don't exist |
 | Custom colorsets are kept by their content, and textures are copied before use | A set changed under the same name kept its old look, and one set's material could leak into the next |
-| New method `fadeDice(ids, opacity)` | Fades dice that don't count, such as the lower die when the higher one is kept |
+| New method `fadeDice(ids, opacity, duration)` | Fades dice that don't count, such as the lower die when the higher one is kept. Eases in over `duration` ms (default 900) and resolves when done |
 | `dist` is committed | The app installs the fork straight from GitHub |
 
 Tests: `npm test` (Node's own test runner).
