@@ -337,6 +337,97 @@ class DiceBox {
 	}
 
 	/**
+	 * LoreWeaver fork: celebrates dice, such as a die that landed on a critical face. Each die pops, pulses with a
+	 * warm glow, and throws off a burst of sparks; afterwards it keeps a soft glow until the dice are cleared.
+	 * @param {Array<number>} ids - The dice to celebrate, by their place in the throw (0 is the first die).
+	 * @param {object} [options] - How it looks.
+	 * @param {number|string} [options.color=0xffc94a] - The glow and spark colour.
+	 * @param {number} [options.duration=1800] - How long the burst lasts, in milliseconds.
+	 * @param {number} [options.sparks=120] - Sparks per die.
+	 * @returns {Promise<void>} Resolves when the burst has finished.
+	 */
+	celebrateDice(ids = [], { color = 0xffc94a, duration = 1800, sparks = 120 } = {}){
+		const meshes = ids.map((id) => this.diceList[id]).filter(Boolean)
+		if (!meshes.length || !this.renderer || typeof requestAnimationFrame !== 'function') return Promise.resolve()
+		const glow = new THREE.Color(color)
+		const materials = meshes.flatMap((mesh) => (Array.isArray(mesh.material) ? mesh.material : [mesh.material])).filter((material) => material.emissive)
+		materials.forEach((material) => { material.emissive = glow.clone(); material.emissiveIntensity = 0 })
+		const reach = this.display.scale * 5
+		const sparkMap = this.sparkTexture()
+		const bursts = meshes.map((mesh) => {
+			const positions = new Float32Array(sparks * 3)
+			const velocities = []
+			for (let i = 0; i < sparks; i++) {
+				const angle = Math.random() * Math.PI * 2
+				const speed = reach * (0.45 + Math.random() * 0.75)
+				velocities.push(new THREE.Vector3(Math.cos(angle) * speed, Math.sin(angle) * speed, reach * (0.4 + Math.random() * 0.9)))
+				positions.set([mesh.position.x, mesh.position.y, mesh.position.z], i * 3)
+			}
+			const geometry = new THREE.BufferGeometry()
+			geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+			const material = new THREE.PointsMaterial({ color: glow, map: sparkMap, size: this.display.scale * 1.5, transparent: true, opacity: 1, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending })
+			const points = new THREE.Points(geometry, material)
+			this.scene.add(points)
+			return { mesh, points, positions, velocities, origin: mesh.position.clone(), scale: mesh.scale.clone() }
+		})
+		return new Promise((resolve) => {
+			const start = performance.now()
+			const step = (now) => {
+				const share = Math.min(1, (now - start) / duration)
+				const seconds = (share * duration) / 1000
+				// Three quick pulses that settle into a soft steady glow.
+				const pulse = (0.5 + 0.5 * Math.cos(share * Math.PI * 6)) * (1 - share)
+				materials.forEach((material) => { material.emissiveIntensity = 0.25 + 0.75 * pulse })
+				bursts.forEach(({ mesh, points, positions, velocities, origin, scale }) => {
+					// A pop: the die swells by a quarter and settles back in the first fifth of the burst.
+					const pop = share < 0.2 ? Math.sin((share / 0.2) * Math.PI) * 0.25 : 0
+					mesh.scale.set(scale.x * (1 + pop), scale.y * (1 + pop), scale.z * (1 + pop))
+					velocities.forEach((velocity, i) => {
+						positions[i * 3] = origin.x + velocity.x * seconds
+						positions[i * 3 + 1] = origin.y + velocity.y * seconds
+						positions[i * 3 + 2] = Math.max(0, origin.z + velocity.z * seconds - reach * 1.6 * seconds * seconds)
+					})
+					points.geometry.attributes.position.needsUpdate = true
+					points.material.opacity = 1 - share * share
+				})
+				this.renderer.render(this.scene, this.camera)
+				if (share < 1) { requestAnimationFrame(step); return }
+				bursts.forEach(({ mesh, points, scale }) => {
+					mesh.scale.copy(scale)
+					this.scene.remove(points)
+					points.geometry.dispose()
+					points.material.dispose()
+				})
+				materials.forEach((material) => { material.emissiveIntensity = 0.25 })
+				this.renderer.render(this.scene, this.camera)
+				resolve()
+			}
+			requestAnimationFrame(step)
+		})
+	}
+
+	/**
+	 * LoreWeaver fork: a soft round spark, white at the centre and fading out, drawn once and reused.
+	 * @returns {THREE.Texture} The spark picture.
+	 */
+	sparkTexture(){
+		if (this.sparkMap) return this.sparkMap
+		const canvas = document.createElement('canvas')
+		canvas.width = 64
+		canvas.height = 64
+		const context = canvas.getContext('2d')
+		const gradient = context.createRadialGradient(32, 32, 0, 32, 32, 32)
+		gradient.addColorStop(0, 'rgba(255,255,255,1)')
+		gradient.addColorStop(0.2, 'rgba(255,245,215,0.95)')
+		gradient.addColorStop(0.5, 'rgba(255,215,120,0.35)')
+		gradient.addColorStop(1, 'rgba(255,190,80,0)')
+		context.fillStyle = gradient
+		context.fillRect(0, 0, 64, 64)
+		this.sparkMap = new THREE.CanvasTexture(canvas)
+		return this.sparkMap
+	}
+
+	/**
 	 * LoreWeaver fork: fades dice that don't count, such as the lower die when the higher one is kept. The fade
 	 * eases in over `duration`, so the die sinks away rather than vanishing.
 	 * @param {Array<number>} ids - The dice to fade, by their place in the throw (0 is the first die).

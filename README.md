@@ -16,6 +16,7 @@ This fork is used by LoreWeaver Table. It changes the library in these ways (eac
 | Sounds load when switched on, and again for dice of a new material; a missing set is skipped | Before, a material without loaded sounds threw an error, and "perfectmetal" asked for files that don't exist |
 | Custom colorsets are kept by their content, and textures are copied before use | A set changed under the same name kept its old look, and one set's material could leak into the next |
 | New method `fadeDice(ids, opacity, duration)` | Fades dice that don't count, such as the lower die when the higher one is kept. Eases in over `duration` ms (default 900) and resolves when done |
+| New method `celebrateDice(ids, {color, duration, sparks})` | A die on a special face (such as a critical) pops, pulses with a warm glow and throws off sparks, then keeps a soft glow |
 | `dist` is committed | The app installs the fork straight from GitHub |
 
 Tests: `npm test` (Node's own test runner).
