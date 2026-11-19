@@ -8,7 +8,7 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
-dist
+# LoreWeaver fork: dist is committed, so the app can install this fork straight from GitHub.
 dist-ssr
 *.local
 

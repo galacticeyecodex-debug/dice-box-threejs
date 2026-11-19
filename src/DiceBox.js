@@ -8,6 +8,15 @@ import { THEMES } from './const/themes.js';
 // import CannonDebugger from 'cannon-es-debugger'
 
 import { debounce } from "./helpers"
+import { throwVector, DEFAULT_THROW_SPREAD } from "./throwVector.js"
+import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js"
+
+/** LoreWeaver fork: how many sound files each dice material and table surface has. */
+const DIE_SOUND_COUNTS = { coin: 6, metal: 12, plastic: 15, wood: 12 }
+const SURFACE_SOUND_COUNTS = { felt: 7, wood_table: 7, wood_tray: 7, metal: 9 }
+
+/** LoreWeaver fork: the theme options that mean the dice must be recoloured. */
+const THEME_OPTIONS = ['theme_colorset', 'theme_texture', 'theme_material', 'theme_customColorset']
 
 const defaultConfig = {
 	assetPath: "./",
@@ -26,6 +35,11 @@ const defaultConfig = {
 	light_intensity: 0.7,
 	baseScale: 100,
 	strength: 1,
+	throw_spread: DEFAULT_THROW_SPREAD, // LoreWeaver fork: how much a throw's strength varies, 0 to 1
+	throw_start: 0.9, // LoreWeaver fork: how far out the dice start, as a share of the way to the edge
+	wall_bounce: 1.0, // LoreWeaver fork: how much the dice bounce off the walls, 0 (dead) to 1 (perfect)
+	shine: 0, // LoreWeaver fork: how much metal, glass and wood dice reflect a soft room, 0 (none, the original) to 1
+	assetUrl: null, // LoreWeaver fork: optional function(path) giving the URL for a texture or sound, e.g. a data URL
 	iterationLimit: 1000,
 	onRollComplete: () => {},
 	onRerollComplete: () => {},
@@ -112,9 +126,10 @@ class DiceBox {
 		// merge this with default config and any options coming in
 		Object.assign(this, defaultConfig, options)
 
-		this.DiceColors = new DiceColors({assetPath: this.assetPath});
+		this.DiceColors = new DiceColors({assetPath: this.assetPath, assetUrl: this.assetUrl});
 		this.DiceFactory = new DiceFactory({
-			baseScale: this.baseScale
+			baseScale: this.baseScale,
+			shine: this.shine
 		});
 		this.DiceFactory.setBumpMapping(true);
 
@@ -145,6 +160,13 @@ class DiceBox {
 		this.renderer.shadowMap.enabled = this.shadows;
 		this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 		this.renderer.setClearColor(0x000000, 0);
+
+		// LoreWeaver fork: a soft room for metal, glass and wood to reflect. Without it they all look matte.
+		if (this.shine > 0) {
+			const pmrem = new THREE.PMREMGenerator(this.renderer);
+			this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+			pmrem.dispose();
+		}
 
 		this.setDimensions(this.dimensions);
 
@@ -191,7 +213,8 @@ class DiceBox {
 		const barrier_body_material = new CANNON.Material();
 
 		this.world.addContactMaterial(new CANNON.ContactMaterial( desk_body_material, this.dice_body_material, {mass:0,friction: 0.6, restitution: 0.5}));
-		this.world.addContactMaterial(new CANNON.ContactMaterial( barrier_body_material, this.dice_body_material, {mass:0, friction: 0.6, restitution: 1.0}));
+		// LoreWeaver fork: wall_bounce sets how lively the walls are (the original was always 1.0, a perfect bounce).
+		this.world.addContactMaterial(new CANNON.ContactMaterial( barrier_body_material, this.dice_body_material, {mass:0, friction: 0.6, restitution: this.wall_bounce}));
 		this.world.addContactMaterial(new CANNON.ContactMaterial( this.dice_body_material, this.dice_body_material, {mass:0,friction: 0.6, restitution: 0.5}));
 
 		this.box_body.desk = new CANNON.Body({allowSleep: false, mass: 0, shape: new CANNON.Plane(), material: desk_body_material})
@@ -229,56 +252,53 @@ class DiceBox {
 		this.colorData = colorData
 	}
 
+	/**
+	 * LoreWeaver fork: gives the URL for a texture or sound file, through the assetUrl option when there is one.
+	 * @param {string} path - The file's path inside the library's public folder, e.g. "sounds/dicehit/dicehit_wood1.mp3".
+	 * @returns {string} The URL to load.
+	 */
+	assetSource(path){
+		return typeof this.assetUrl === 'function' ? this.assetUrl(path) : this.assetPath + path
+	}
+
+	/**
+	 * LoreWeaver fork: says which set of hit sounds suits the current dice. Glass and plastic share the plastic set.
+	 * The original compared the whole material name, so "perfectmetal" asked for sound files that don't exist.
+	 * @returns {string} "metal", "wood" or "plastic".
+	 */
+	soundMaterial(){
+		const texture = Array.isArray(this.colorData?.texture) ? this.colorData.texture[0] : this.colorData?.texture
+		const match = String(texture?.material || '').match(/wood|metal/)
+		return match ? match[0] : 'plastic'
+	}
+
+	/**
+	 * Loads one set of sounds once, and keeps it.
+	 * @param {object} store - this.sounds_table or this.sounds_dice.
+	 * @param {string} key - The surface or material name.
+	 * @param {number} count - How many files the set has.
+	 * @param {(index: number) => string} pathFor - The file path for sound number 1..count.
+	 */
+	async loadSoundSet(store, key, count, pathFor){
+		if (store.hasOwnProperty(key) || !count) return
+		store[key] = []
+		const clips = await Promise.all(Array.from({ length: count }, (_, i) => this.loadAudio(this.assetSource(pathFor(i + 1)))))
+		store[key] = clips.filter(Boolean)
+	}
+
 	async loadSounds(){
-		let surfaces = {
-			felt: 7,
-			wood_table: 7,
-			wood_tray: 7,
-			metal: 9
-		}
-
-		//TODO: add dice hit noises for other materials
-		let dieMaterials = {
-			coin: 6,
-			metal: 12,
-			plastic: 15,
-			wood: 12
-		}
-
-		const hassound_dieMaterial = this.colorData.texture.material.match(/wood|metal/g)
-
-		this.sound_dieMaterial = hassound_dieMaterial ? this.colorData.texture.material : "plastic"
-		
-		if(!this.sounds_table.hasOwnProperty(this.surface)){
-			this.sounds_table[this.surface] = [];
-			let numsounds = surfaces[this.surface]
-			for (let s=1; s <= numsounds; ++s) {
-				const clip = await this.loadAudio(this.assetPath + 'sounds/surfaces/surface_'+this.surface+s+'.mp3')
-				this.sounds_table[this.surface].push(clip);
-			}
-		}
-		// load the coin sounds for all sets
-		if(!this.sounds_dice.hasOwnProperty('coin')){
-			this.sounds_dice['coin'] = []
-			let numsounds = dieMaterials['coin']
-			for (let s=1; s <= numsounds; ++s) {
-				const clip = await this.loadAudio(this.assetPath + 'sounds/dicehit/dicehit_coin'+s+'.mp3')
-				this.sounds_dice['coin'].push(clip);
-			}
-		}
-		if(!this.sounds_dice.hasOwnProperty(this.sound_dieMaterial)){
-			this.sounds_dice[this.sound_dieMaterial] = []
-			let numsounds = dieMaterials[this.sound_dieMaterial]
-			for (let s=1; s <= numsounds; ++s) {
-				const clip = await this.loadAudio(this.assetPath + 'sounds/dicehit/dicehit_'+this.sound_dieMaterial+s+'.mp3')
-				this.sounds_dice[this.sound_dieMaterial].push(clip);
-			}
-		}
+		this.sound_dieMaterial = this.soundMaterial()
+		await this.loadSoundSet(this.sounds_table, this.surface, SURFACE_SOUND_COUNTS[this.surface], (s) => `sounds/surfaces/surface_${this.surface}${s}.mp3`)
+		// the coin sounds are for d2s, whatever the dice are made of
+		await this.loadSoundSet(this.sounds_dice, 'coin', DIE_SOUND_COUNTS.coin, (s) => `sounds/dicehit/dicehit_coin${s}.mp3`)
+		await this.loadSoundSet(this.sounds_dice, this.sound_dieMaterial, DIE_SOUND_COUNTS[this.sound_dieMaterial], (s) => `sounds/dicehit/dicehit_${this.sound_dieMaterial}${s}.mp3`)
 	}
 
 	loadAudio(src){
 		return new Promise((resolve, reject) => {
 			let audio = new Audio()
+			// LoreWeaver fork: never let one slow sound file hold up the dice.
+			setTimeout(() => resolve(undefined), 5000)
 			audio.oncanplaythrough = () => resolve(audio)
 			audio.crossOrigin = "anonymous";
 			audio.src = src
@@ -294,25 +314,46 @@ class DiceBox {
 		// 		scale: options.scale
 		// 	})
 		// }
-		Object.apply(this,options)
-		this.theme_customColorset = options.theme_customColorset ? options.theme_customColorset : null
-		if(options.theme_colorset){
-			this.theme_colorset = options.theme_colorset
-		}
-		if(options.theme_texture){
-			this.theme_texture = options.theme_texture
-		}
-		if(options.theme_material){
-			this.theme_material = options.theme_material
-		}
-		if(options.theme_colorset || options.theme_texture || options.theme_material || options.theme_customColorset){
+		// LoreWeaver fork: the original called Object.apply, which does nothing, so options such as sounds,
+		// volume, strength and gravity could never be changed after the box was made.
+		const themeChanged = THEME_OPTIONS.some((key) => key in options)
+		// A named colorset replaces a custom one, as in the original.
+		if (('theme_colorset' in options) && !('theme_customColorset' in options)) options = { ...options, theme_customColorset: null }
+		Object.assign(this, options)
+
+		if ('gravity_multiplier' in options && this.world) this.world.gravity.set(0, 0, -9.8 * this.gravity_multiplier)
+		if ('wall_bounce' in options && this.world) this.makeWorldBox()
+		if ('shadows' in options) this.shadows ? this.enableShadows() : this.disableShadows()
+		if ('light_intensity' in options && this.light) this.light.intensity = this.light_intensity
+		if (themeChanged) {
 			await this.loadTheme({
 				colorset: this.theme_colorset,
 				texture: this.theme_texture,
 				material: this.theme_material
 			})
 		}
+		// Sounds load the first time they're switched on, and again for dice of a new material.
+		if (this.sounds && (themeChanged || 'sounds' in options) && this.initialized) await this.loadSounds()
+	}
 
+	/**
+	 * LoreWeaver fork: fades dice that don't count, such as the lower die when the higher one is kept.
+	 * @param {Array<number>} ids - The dice to fade, by their place in the throw (0 is the first die).
+	 * @param {number} [opacity=0.3] - How solid they stay, from 0 (gone) to 1 (unchanged).
+	 */
+	fadeDice(ids = [], opacity = 0.3){
+		ids.forEach((id) => {
+			const mesh = this.diceList[id]
+			if (!mesh) return
+			const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
+			materials.forEach((material) => {
+				material.transparent = true
+				material.opacity = opacity
+				material.needsUpdate = true
+			})
+			mesh.castShadow = opacity >= 0.6
+		})
+		if (this.renderer) this.renderer.render(this.scene, this.camera)
 	}
 
 	setDimensions(dimensions) {
@@ -431,9 +472,10 @@ class DiceBox {
 				vec.x /= dist;
 				vec.y /= dist;
 
+				// LoreWeaver fork: throw_start says how far out the dice start (the original was always 0.9).
 				let pos = {
-					x: this.display.containerWidth * (vec.x > 0 ? -1 : 1) * 0.9,
-					y: this.display.containerHeight * (vec.y > 0 ? -1 : 1) * 0.9,
+					x: this.display.containerWidth * (vec.x > 0 ? -1 : 1) * this.throw_start,
+					y: this.display.containerHeight * (vec.y > 0 ? -1 : 1) * this.throw_start,
 					z: Math.random() * 200 + 200
 				};
 
@@ -691,12 +733,9 @@ class DiceBox {
 
 			let sound;
 
-			if(body.diceShape === "d2") {
-				sound = this.sounds_dice['coin'][Math.floor(Math.random() * this.sounds_dice['coin'].length)];
-			}
-			else {
-				sound = this.sounds_dice[this.sound_dieMaterial][Math.floor(Math.random() * this.sounds_dice[this.sound_dieMaterial].length)];
-			}
+			// LoreWeaver fork: a set that hasn't loaded yet is skipped instead of throwing an error.
+			const clips = this.sounds_dice[body.diceShape === "d2" ? 'coin' : this.sound_dieMaterial] || [];
+			sound = clips[Math.floor(Math.random() * clips.length)];
 			if(sound){
 				sound.volume = Math.min(speed / 8000, this.volume/100)
 				sound.play().catch(error => {});
@@ -719,7 +758,7 @@ class DiceBox {
 
 			let surface = this.surface;
 
-			let soundlist = this.sounds_table[surface];
+			let soundlist = this.sounds_table[surface] || [];
 			let sound = soundlist[Math.floor(Math.random() * soundlist.length)];
 			if(sound){
 				sound.volume = Math.min(speed / 8000, this.volume/100)
@@ -894,9 +933,13 @@ class DiceBox {
 			this.rolling = false
 		}
 
-		let vector = { x: (Math.random() * 2 - 0.5) * this.display.currentWidth, y: -(Math.random() * 2 - 0.5) * this.display.currentHeight };
-		let dist = Math.sqrt(vector.x * vector.x + vector.y * vector.y) + 100;
-		let boost = (Math.random() + 3) * dist * this.strength;
+		// LoreWeaver fork: every throw is full strength, from any side. See throwVector.js.
+		const { vector, dist, boost } = throwVector({
+			width: this.display.currentWidth,
+			height: this.display.currentHeight,
+			strength: this.strength,
+			spread: this.throw_spread
+		});
 
 		const notationVectors = this.getNotationVectors(notation, vector, boost, dist);
 

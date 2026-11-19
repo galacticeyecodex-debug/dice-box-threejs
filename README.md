@@ -1,6 +1,25 @@
 # dice-box-threejs
 3D Dice implemented with ThreeJS and Cannon ES
 
+## LoreWeaver fork
+
+This fork is used by LoreWeaver Table. It changes the library in these ways (each change is marked
+"LoreWeaver fork" in the code):
+
+| Change | Why |
+|---|---|
+| `throwVector.js`: a throw's direction is random all the way round, and its strength stays close to the same | The original took a throw's strength from the length of a random arrow, so some throws barely left the hand, and three throws in four came from the left |
+| New options `throw_spread`, `throw_start`, `wall_bounce` | Starting the dice at 0.9 of the way out put them partly inside the walls (at 0.93), pinning some at the edge. Measured: with `throw_start: 0.75` and `wall_bounce: 0.4`, dice that barely moved fell from 5.2% to 0.3% |
+| New option `shine` (0 to 1) | Metal, glass and wood had their reflections switched off, so they looked almost like plastic. `shine` gives them a soft room to reflect |
+| New option `assetUrl(path)` | Lets an app hand over each texture and sound file itself, e.g. as data URLs in a one-file build |
+| `updateConfig` works | It called `Object.apply`, which does nothing, so `sounds`, `volume`, `strength` and the rest could not be changed after start |
+| Sounds load when switched on, and again for dice of a new material; a missing set is skipped | Before, a material without loaded sounds threw an error, and "perfectmetal" asked for files that don't exist |
+| Custom colorsets are kept by their content, and textures are copied before use | A set changed under the same name kept its old look, and one set's material could leak into the next |
+| New method `fadeDice(ids, opacity)` | Fades dice that don't count, such as the lower die when the higher one is kept |
+| `dist` is committed | The app installs the fork straight from GitHub |
+
+Tests: `npm test` (Node's own test runner).
+
 Based on [Major's 3D Dice](https://majorvictory.github.io/3DDiceRoller/)
 
 The goal of this project is to decouple the UI of Major's 3D Dice and strip down the dice box to just the essentials. Just a module that accepts simple dice notation input and outputs a JSON object when the dice finish rolling.

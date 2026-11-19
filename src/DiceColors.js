@@ -4,8 +4,10 @@ import {COLORSETS} from "./const/colorsets"
 export class DiceColors {
 	
 	constructor(options = {}) {
-		this.colorsets = []
+		this.colorsets = {}
 		this.assetPath = options.assetPath
+		// LoreWeaver fork: optional function(path) giving each texture's URL, e.g. a data URL in a one-file app.
+		this.assetUrl = options.assetUrl
 	}
 
 	async ImageLoader(data) {
@@ -33,7 +35,7 @@ export class DiceColors {
 			let img = new Image()
 			img.onload = () => resolve(img)
 			img.crossOrigin = "anonymous";
-			img.src = this.assetPath + src
+			img.src = typeof this.assetUrl === 'function' ? this.assetUrl(src) : this.assetPath + src
 			img.onerror = (error) => reject(error)
 			}).catch(e => {
 				console.error("Unable to load image texture")
@@ -70,7 +72,8 @@ export class DiceColors {
 			return this.colorsets[setName]
 		}
 
-		let colorset = COLORSETS[setName];
+		// LoreWeaver fork: a copy, so loading one set never changes the shared list for the next.
+		let colorset = { ...COLORSETS[setName] };
 		texture = options.texture || colorset.texture
 		
 		// get texture data
@@ -91,8 +94,11 @@ export class DiceColors {
 	}
 
 	async makeColorSet(options = {}){
-		if(this.colorsets.hasOwnProperty(options.name)) {
-			return this.colorsets[options.name]
+		// LoreWeaver fork: kept by everything that shapes the set, not by name alone, so a set whose colours,
+		// texture or material change under the same name is rebuilt instead of reusing the old look.
+		const cacheKey = `custom:${JSON.stringify(options)}`
+		if(this.colorsets.hasOwnProperty(cacheKey)) {
+			return this.colorsets[cacheKey]
 		}
 
 		let defaultSet = COLORSETS["white"]
@@ -113,7 +119,7 @@ export class DiceColors {
 		}
 
 		// save it for later
-		this.colorsets[colorset.name] = colorset
+		this.colorsets[cacheKey] = colorset
 
 		return colorset
 	}
@@ -127,10 +133,11 @@ export class DiceColors {
 			return textures;
 		}
 		
+		// LoreWeaver fork: copies, because loading images and setting a material change the object returned.
 		if (TEXTURELIST.hasOwnProperty(texturename)) {
-			return TEXTURELIST[texturename]
+			return { ...TEXTURELIST[texturename] }
 		}
-		return TEXTURELIST['none']
+		return { ...TEXTURELIST['none'] }
 	}
 
 }

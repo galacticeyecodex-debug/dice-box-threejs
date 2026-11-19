@@ -202,7 +202,8 @@ class DiceFactory {
 			var mat;
 			if (this.dice_material != 'none') {
 				mat = new THREE.MeshStandardMaterial(MATERIALTYPES[this.dice_material]);
-				mat.envMapIntensity = 0;
+				// LoreWeaver fork: shine lets metal, glass and wood reflect the room DiceBox sets up. 0 is the original.
+				mat.envMapIntensity = (MATERIALTYPES[this.dice_material]?.envMapIntensity ?? 1) * (this.shine || 0);
 			} else {
 				mat = new THREE.MeshPhongMaterial(this.material_options);
 			}
