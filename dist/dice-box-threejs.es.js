@@ -17475,32 +17475,37 @@ class $p {
       });
     });
   }
-  async add(e) {
-    let t = this.diceList.length;
-    if (!t)
-      return this.roll(e);
-    let n = this.startClickThrow(e), i = [];
-    for (let s = 0, o = n.vectors.length; s < o; ++s)
-      this.spawnDice(n.vectors[s]);
+  async add(e, { looks: t = null } = {}) {
+    let n = this.diceList.length;
+    if (!n)
+      return this.roll(e, { looks: t });
+    const i = t ? await Promise.all(t.map((r) => r ? this.DiceColors.makeColorSet(r) : null)) : [];
+    this.dieLooks = [], this.dieLabels = [], i.forEach((r, l) => {
+      var a, c;
+      this.dieLooks[n + l] = r, this.dieLabels[n + l] = (c = (a = t[l]) == null ? void 0 : a.labels) != null ? c : null;
+    });
+    let s = this.startClickThrow(e), o = [];
+    for (let r = 0, l = s.vectors.length; r < l; ++r)
+      this.spawnDice(s.vectors[r]);
     this.simulateThrow(), this.steps = 0, this.iteration = 0;
-    for (let s = 0, o = n.vectors.length; s < o; ++s) {
-      const r = t + s;
-      !this.diceList[r] || (this.spawnDice(n.vectors[s], this.diceList[r]), i.push(r));
+    for (let r = 0, l = s.vectors.length; r < l; ++r) {
+      const a = n + r;
+      !this.diceList[a] || (this.spawnDice(s.vectors[r], this.diceList[a]), o.push(a));
     }
-    if (n.result && n.result.length > 0)
-      for (let s = 0; s < n.result.length; s++) {
-        const o = t + s;
-        let r = this.diceList[o];
-        !r || r.getLastValue().value != n.result[s] && this.swapDiceFace(r, n.result[s]);
+    if (s.result && s.result.length > 0)
+      for (let r = 0; r < s.result.length; r++) {
+        const l = n + r;
+        let a = this.diceList[l];
+        !a || a.getLastValue().value != s.result[r] && this.swapDiceFace(a, s.result[r]);
       }
-    return this.notationVectors = fo.mergeNotation(this.notationVectors, n), new Promise((s, o) => {
-      const r = () => {
-        const l = i.map((c) => this.getDiceResults(c));
-        this.onAddDiceComplete(l);
-        const a = new CustomEvent("addDiceComplete", { detail: l });
-        document.dispatchEvent(a), s(l);
+    return this.notationVectors = fo.mergeNotation(this.notationVectors, s), new Promise((r, l) => {
+      const a = () => {
+        const c = o.map((h) => this.getDiceResults(h));
+        this.onAddDiceComplete(c);
+        const d = new CustomEvent("addDiceComplete", { detail: c });
+        document.dispatchEvent(d), r(c);
       };
-      this.rolling = !0, this.running = Date.now(), this.last_time = 0, this.animateThrow(this.running, r);
+      this.rolling = !0, this.running = Date.now(), this.last_time = 0, this.animateThrow(this.running, a);
     });
   }
   async remove(e) {

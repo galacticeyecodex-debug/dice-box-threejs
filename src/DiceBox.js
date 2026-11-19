@@ -1241,9 +1241,25 @@ class DiceBox {
 		})
 	}
 
-	async add(notationSting){
+	/**
+	 * Throws more dice in beside the ones already on the table.
+	 * @param {string} notationSting - Dice notation, with forced faces after @ if wanted.
+	 * @param {object} [options] - LoreWeaver fork.
+	 * @param {Array<object|null>} [options.looks] - A custom colorset (with optional labels) for each new die, as roll takes.
+	 * @returns {Promise<Array<object>>} The new dice's results.
+	 */
+	async add(notationSting, { looks = null } = {}){
 		let dieCount = this.diceList.length
-		if(!dieCount) return this.roll(notationSting)
+		if(!dieCount) return this.roll(notationSting, { looks })
+
+		// LoreWeaver fork: the new dice can have their own looks, such as a rerolled Marvel die.
+		const loaded = looks ? await Promise.all(looks.map((look) => (look ? this.DiceColors.makeColorSet(look) : null))) : []
+		this.dieLooks = []
+		this.dieLabels = []
+		loaded.forEach((look, i) => {
+			this.dieLooks[dieCount + i] = look
+			this.dieLabels[dieCount + i] = looks[i]?.labels ?? null
+		})
 
 		let addNotationVectors = this.startClickThrow(notationSting)
 		let diceIdArray = []
