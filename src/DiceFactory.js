@@ -5,6 +5,7 @@ import {DICE_GEOM} from "./const/dice"
 import { applyGlow, glowLevel } from "./glow.js"
 import { applyDepthSettings } from "./materialDepth.js"
 import { BoundedTextureCache } from "./gpuCache.js"
+import { canvasFont, resolveEdgeColor } from "./faceStyle.js"
 
 import * as THREE from "three"
 import * as CANNON from "cannon-es"
@@ -28,6 +29,7 @@ class DiceFactory {
 		this.dice_color = '';
 		this.edge_color = '';
 		this.label_outline = '';
+		this.label_font = '';
 		this.dice_texture = '';
 		this.dice_material = '';
 
@@ -225,9 +227,10 @@ class DiceFactory {
 
 			let canvasTextures;
 			if (i==0) { //edge
-				//if the texture is fully opaque, we do not use it for edge
+				// LoreWeaver fork: an explicit edge colour stays crisp on chamfered bevels; otherwise inherit see-through textures.
 				let texture = {name:"none"};
-				if(this.dice_texture_rand.composite != "source-over") texture = this.dice_texture_rand;
+				const hasExplicitEdge = this.edge_color_rand && this.edge_color_rand !== this.dice_color_rand;
+				if(!hasExplicitEdge && this.dice_texture_rand.composite != "source-over") texture = this.dice_texture_rand;
 
 				canvasTextures = this.createTextMaterial(diceobj, labels, i, size, margin, texture, this.label_color_rand, this.label_outline_rand, this.edge_color_rand, allowcache);
 				mat.map = canvasTextures.composite;
@@ -301,9 +304,10 @@ class DiceFactory {
 		}
 
 		// an attempt at materials caching
-		let cachestring = diceobj.type + textCache + index + texture.name + forecolor + outlinecolor + backcolor;
+		const fontTag = this.label_font || diceobj.font || '';
+		let cachestring = diceobj.type + textCache + index + texture.name + forecolor + outlinecolor + backcolor + fontTag;
 		if (diceobj.shape == 'd4') {
-			cachestring = diceobj.type + textCache + texture.name + forecolor + outlinecolor + backcolor;
+			cachestring = diceobj.type + textCache + texture.name + forecolor + outlinecolor + backcolor + fontTag;
 		}
 		const cached = allowcache ? this.materials_cache.get(cachestring) : null;
 		if (cached != null) {
@@ -435,9 +439,10 @@ class DiceFactory {
 					textstartx = textstartx*0.98;
 				}
 
-				context.font =  fontsize+ 'pt '+diceobj.font;
-				contextBump.font =  fontsize+ 'pt '+diceobj.font;
-				contextGlow.font =  fontsize+ 'pt '+diceobj.font;
+				const faceFont = canvasFont(this.label_font, diceobj.font, fontsize);
+				context.font = faceFont;
+				contextBump.font = faceFont;
+				contextGlow.font = faceFont;
 
 				let lineHeight = context.measureText("M").width * 1.4;
 				let textlines = text.split("\n");
@@ -445,9 +450,10 @@ class DiceFactory {
 
 				if (textlines.length > 1) {
 					fontsize = fontsize / textlines.length;
-					context.font =  fontsize+ 'pt '+diceobj.font;
-					contextBump.font =  fontsize+ 'pt '+diceobj.font;
-					contextGlow.font =  fontsize+ 'pt '+diceobj.font;
+					const smallFont = canvasFont(this.label_font, diceobj.font, fontsize);
+					context.font = smallFont;
+					contextBump.font = smallFont;
+					contextGlow.font = smallFont;
 					lineHeight = context.measureText("M").width * 1.2;
 					textstarty -= (lineHeight * textlines.length) / 2;
 				}
@@ -493,9 +499,10 @@ class DiceFactory {
 			var hw = (canvas.width / 2);
 			var hh = (canvas.height / 2);
 
-			context.font =  (ts / 128 * 24)+'pt '+diceobj.font;
-			contextBump.font =  (ts / 128 * 24)+'pt '+diceobj.font;
-			contextGlow.font =  (ts / 128 * 24)+'pt '+diceobj.font;
+			const d4Font = canvasFont(this.label_font, diceobj.font, ts / 128 * 24);
+			context.font = d4Font;
+			contextBump.font = d4Font;
+			contextGlow.font = d4Font;
 
 			//draw the numbers
 			for (let i=0; i<text.length; i++) {
@@ -569,9 +576,10 @@ class DiceFactory {
 		this.label_color = colordata.foreground;
 		this.dice_color = colordata.background;
 		this.label_outline = colordata.outline;
+		this.label_font = colordata.font || '';
 		this.dice_texture = colordata.texture;
 		this.dice_material = colordata?.texture?.material || 'none';
-		this.edge_color = colordata.hasOwnProperty("edge") ? colordata.edge:colordata.background;
+		this.edge_color = resolveEdgeColor(colordata);
 		// LoreWeaver fork: how brightly the set lights its own faces, 0 (the original) to 1 (src/glow.js).
 		this.dice_glow = glowLevel(colordata.glow);
 	}
