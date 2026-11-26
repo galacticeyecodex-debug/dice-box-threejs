@@ -3,6 +3,7 @@ import {DicePreset} from './DicePreset.js'
 import {MATERIALTYPES} from "./const/materialtypes"
 import {DICE_GEOM} from "./const/dice"
 import { applyGlow, glowLevel } from "./glow.js"
+import { applyDepthSettings } from "./materialDepth.js"
 
 import * as THREE from "three"
 import * as CANNON from "cannon-es"
@@ -272,10 +273,8 @@ class DiceFactory {
 					}
 				}
 			}
-			mat.opacity = 1;
-			mat.transparent = true;
-			mat.depthTest = false;
-			mat.needUpdate = true;
+			// LoreWeaver fork: true 3D depth sorting so overlapping dice never draw out of order (src/materialDepth.js).
+			applyDepthSettings(mat, i === 0 && this.dice_texture_rand.composite !== "source-over" ? this.dice_texture_rand : (i === 0 ? null : this.dice_texture_rand), 1);
 			materials.push(mat);
 		}
 		//Edge mat

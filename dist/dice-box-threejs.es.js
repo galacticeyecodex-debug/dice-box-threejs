@@ -15912,7 +15912,11 @@ function da(c) {
 function sm(c, e, t) {
   return !(t > 0) || !(c != null && c.emissive) || !e ? !1 : (c.emissiveMap = e, c.emissive = new Me(16777215), c.emissiveIntensity = t, !0);
 }
-const rm = {
+function rm(c, e = null, t = 1) {
+  const n = (e == null ? void 0 : e.composite) === "destination-in" || t < 1;
+  return c.opacity = t, c.transparent = n, c.depthTest = !0, c.depthWrite = !n || t >= 0.5, c.needsUpdate = !0, c;
+}
+const om = {
   baseScale: 100,
   bumpMapping: !0
 }, ti = class {
@@ -15922,7 +15926,7 @@ const rm = {
       color: 11908533,
       shininess: 5,
       flatShading: !0
-    }, Object.assign(this, rm, e);
+    }, Object.assign(this, om, e);
   }
   updateConfig(e = {}) {
     Object.assign(this, e), e.scale && this.scaleGeometry();
@@ -16016,7 +16020,7 @@ const rm = {
           m.bump && (a.bumpMap = m.bump), e.shape != "d4" && e.normals[l] && (a.bumpMap = new xt(e.normals[l]), a.bumpScale = 4, a.bumpMap.needsUpdate = !0);
         }
       }
-      a.opacity = 1, a.transparent = !0, a.depthTest = !1, a.needUpdate = !0, o.push(a);
+      rm(a, l === 0 && this.dice_texture_rand.composite !== "source-over" ? this.dice_texture_rand : l === 0 ? null : this.dice_texture_rand, 1), o.push(a);
     }
     return o;
   }
@@ -16954,7 +16958,7 @@ const tr = {
     description: "Star Wars\u2122 Legion White Defense Dice"
   }
 };
-class om {
+class am {
   constructor(e = {}) {
     this.colorsets = {}, this.assetPath = e.assetPath, this.assetUrl = e.assetUrl;
   }
@@ -16998,7 +17002,7 @@ class om {
     return tr.hasOwnProperty(e) ? { ...tr[e] } : { ...tr.none };
   }
 }
-const am = {
+const lm = {
   default: {
     name: "Solid Color",
     author: "MajorVictory",
@@ -17071,7 +17075,7 @@ const am = {
     colors: { fg: "#D7A866", bg: "#282811" },
     cubeMap: ["px.png", "nx.png", "py.png", "ny.png", "pz.png", "nz.png"]
   }
-}, lm = (c) => {
+}, cm = (c) => {
   let e;
   return function() {
     let t = this, n = arguments;
@@ -17079,30 +17083,30 @@ const am = {
       c.apply(t, n);
     });
   };
-}, cm = 2.1, fa = 0.15;
-function hm(c) {
+}, hm = 2.1, fa = 0.15;
+function um(c) {
   return Number.isFinite(c) ? Math.min(1, Math.max(0, c)) : 0;
 }
-function um({ width: c, height: e, strength: t = 1, spread: n = fa, random: i = Math.random }) {
-  const s = Math.max(1, Math.hypot(c, e)), o = i() * Math.PI * 2, r = { x: Math.cos(o) * s, y: Math.sin(o) * s }, l = 1 + hm(n) * (i() * 2 - 1), a = cm * s * t * l;
+function dm({ width: c, height: e, strength: t = 1, spread: n = fa, random: i = Math.random }) {
+  const s = Math.max(1, Math.hypot(c, e)), o = i() * Math.PI * 2, r = { x: Math.cos(o) * s, y: Math.sin(o) * s }, l = 1 + um(n) * (i() * 2 - 1), a = hm * s * t * l;
   return { vector: r, dist: s, boost: a };
 }
-const dm = 9, fm = 6, pm = 4.5, mm = 12, gm = 6, _m = 0.85, vm = 0.7, nr = (c, e, t) => Math.min(Math.max(c, e), t);
-function xm(c = {}) {
+const fm = 9, pm = 6, mm = 4.5, gm = 12, _m = 6, vm = 0.85, xm = 0.7, nr = (c, e, t) => Math.min(Math.max(c, e), t);
+function ym(c = {}) {
   return { level: da(c == null ? void 0 : c.glow), color: (c == null ? void 0 : c.light) || (c == null ? void 0 : c.background) || "#ffffff" };
 }
-function ym({ level: c, radius: e, height: t, opacity: n = 1 }) {
-  const i = nr(c, 0, 1) * nr(n, 0, 1), s = nr(t / (e * gm), 0, 1);
+function wm({ level: c, radius: e, height: t, opacity: n = 1 }) {
+  const i = nr(c, 0, 1) * nr(n, 0, 1), s = nr(t / (e * _m), 0, 1);
   return {
     pool: {
-      scale: e * (dm + fm * s),
-      opacity: Math.min(_m, i * 1.8 * (1 - 0.6 * s))
+      scale: e * (fm + pm * s),
+      opacity: Math.min(vm, i * 1.8 * (1 - 0.6 * s))
     },
-    halo: { scale: e * pm, opacity: Math.min(vm, i * 1.4) },
-    light: { intensity: i * 2.2, distance: e * mm }
+    halo: { scale: e * mm, opacity: Math.min(xm, i * 1.4) },
+    light: { intensity: i * 2.2, distance: e * gm }
   };
 }
-class wm extends Ko {
+class bm extends Ko {
   constructor() {
     super();
     const e = new ri();
@@ -17141,7 +17145,7 @@ function Qn(c) {
   const e = new us();
   return e.color.setScalar(c), e;
 }
-const Fo = { coin: 6, metal: 12, plastic: 15, wood: 12 }, bm = { felt: 7, wood_table: 7, wood_tray: 7, metal: 9 }, Mm = ["theme_colorset", "theme_texture", "theme_material", "theme_customColorset"], Sm = {
+const Fo = { coin: 6, metal: 12, plastic: 15, wood: 12 }, Mm = { felt: 7, wood_table: 7, wood_tray: 7, metal: 9 }, Sm = ["theme_colorset", "theme_texture", "theme_material", "theme_customColorset"], Em = {
   assetPath: "./",
   framerate: 1 / 60,
   sounds: !1,
@@ -17174,7 +17178,7 @@ const Fo = { coin: 6, metal: 12, plastic: 15, wood: 12 }, bm = { felt: 7, wood_t
   onRemoveDiceComplete: () => {
   }
 };
-class Am {
+class Tm {
   constructor(e, t = {}) {
     this.initialized = !1, this.container = document.querySelector(e), this.dimensions = new we(this.container.clientWidth, this.container.clientHeight), this.adaptive_timestep = !1, this.last_time = 0, this.running = !1, this.rolling = !1, this.threadid, this.display = {
       currentWidth: null,
@@ -17193,11 +17197,11 @@ class Am {
       rotate: !0,
       intersected: null,
       dice: []
-    }, Object.assign(this, Sm, t), this.DiceColors = new om({ assetPath: this.assetPath, assetUrl: this.assetUrl }), this.DiceFactory = new as({
+    }, Object.assign(this, Em, t), this.DiceColors = new am({ assetPath: this.assetPath, assetUrl: this.assetUrl }), this.DiceFactory = new as({
       baseScale: this.baseScale,
       shine: this.shine,
       label_glow: this.label_glow
-    }), this.DiceFactory.setBumpMapping(!0), this.surface = am[this.theme_surface].surface;
+    }), this.DiceFactory.setBumpMapping(!0), this.surface = lm[this.theme_surface].surface;
   }
   enableShadows() {
     this.shadows = !0, this.renderer && (this.renderer.shadowMap.enabled = this.shadows), this.light && (this.light.castShadow = this.shadows), this.desk && (this.desk.receiveShadow = this.shadows);
@@ -17208,7 +17212,7 @@ class Am {
   async initialize() {
     if (this.renderer = new Zo({ antialias: !0, alpha: !0 }), this.container.appendChild(this.renderer.domElement), this.renderer.shadowMap.enabled = this.shadows, this.renderer.shadowMap.type = 2, this.renderer.setClearColor(0, 0), this.scene.onBeforeRender = () => this.updateDieLights(), this.shine > 0) {
       const e = new rr(this.renderer);
-      this.scene.environment = e.fromScene(new wm(), 0.04).texture, e.dispose();
+      this.scene.environment = e.fromScene(new bm(), 0.04).texture, e.dispose();
     }
     this.setDimensions(this.dimensions), this.world.gravity.set(0, 0, -9.8 * this.gravity_multiplier), this.world.broadphase = new sa(), this.world.solver.iterations = 14, this.world.allowSleep = !0, this.makeWorldBox(), this.resizeWorld(), await this.loadTheme({
       colorset: this.theme_colorset,
@@ -17245,7 +17249,7 @@ class Am {
     e[t] = s.filter(Boolean);
   }
   async loadSounds() {
-    this.sound_dieMaterial = this.soundMaterial(), await this.loadSoundSet(this.sounds_table, this.surface, bm[this.surface], (e) => `sounds/surfaces/surface_${this.surface}${e}.mp3`), await this.loadSoundSet(this.sounds_dice, "coin", Fo.coin, (e) => `sounds/dicehit/dicehit_coin${e}.mp3`), await this.loadSoundSet(this.sounds_dice, this.sound_dieMaterial, Fo[this.sound_dieMaterial], (e) => `sounds/dicehit/dicehit_${this.sound_dieMaterial}${e}.mp3`);
+    this.sound_dieMaterial = this.soundMaterial(), await this.loadSoundSet(this.sounds_table, this.surface, Mm[this.surface], (e) => `sounds/surfaces/surface_${this.surface}${e}.mp3`), await this.loadSoundSet(this.sounds_dice, "coin", Fo.coin, (e) => `sounds/dicehit/dicehit_coin${e}.mp3`), await this.loadSoundSet(this.sounds_dice, this.sound_dieMaterial, Fo[this.sound_dieMaterial], (e) => `sounds/dicehit/dicehit_${this.sound_dieMaterial}${e}.mp3`);
   }
   loadAudio(e) {
     return new Promise((t, n) => {
@@ -17256,7 +17260,7 @@ class Am {
     });
   }
   async updateConfig(e = {}) {
-    const t = Mm.some((n) => n in e);
+    const t = Sm.some((n) => n in e);
     "theme_colorset" in e && !("theme_customColorset" in e) && (e = { ...e, theme_customColorset: null }), Object.assign(this, e), "gravity_multiplier" in e && this.world && this.world.gravity.set(0, 0, -9.8 * this.gravity_multiplier), "wall_bounce" in e && this.world && this.makeWorldBox(), "shadows" in e && (this.shadows ? this.enableShadows() : this.disableShadows()), "light_intensity" in e && this.light && (this.light.intensity = this.light_intensity), t && await this.loadTheme({
       colorset: this.theme_colorset,
       texture: this.theme_texture,
@@ -17383,7 +17387,7 @@ class Am {
     n.opacity = 0.5, this.desk = new ke(new Mi(this.display.containerWidth * 6, this.display.containerHeight * 6, 1, 1), n), this.desk.receiveShadow = this.shadows, this.scene.add(this.desk), this.renderer.render(this.scene, this.camera);
   }
   resizeWorld() {
-    const t = lm(() => {
+    const t = cm(() => {
       const n = this.renderer.domElement, i = this.container.clientWidth, s = this.container.clientHeight, o = n.width !== i || n.height !== s;
       return o && this.setDimensions(new we(this.container.clientWidth, this.container.clientHeight)), o;
     });
@@ -17621,7 +17625,7 @@ class Am {
   }
   startClickThrow(e) {
     this.rolling && (this.clearDice(), this.rolling = !1);
-    const { vector: t, dist: n, boost: i } = um({
+    const { vector: t, dist: n, boost: i } = dm({
       width: this.display.currentWidth,
       height: this.display.currentHeight,
       strength: this.strength,
@@ -17639,7 +17643,7 @@ class Am {
   }
   addDieLight(e, t) {
     var d;
-    const { level: n, color: i } = xm(t);
+    const { level: n, color: i } = ym(t);
     if (!(n > 0) || !this.scene)
       return;
     e.geometry.boundingSphere || e.geometry.computeBoundingSphere();
@@ -17652,7 +17656,7 @@ class Am {
       const i = (e = n.userData) == null ? void 0 : e.dieLight;
       if (!i)
         continue;
-      const s = Array.isArray(n.material) ? n.material[0] : n.material, o = n.visible === !1 ? 0 : (t = s == null ? void 0 : s.opacity) != null ? t : 1, { x: r, y: l, z: a } = n.position, h = ym({ level: i.level, radius: i.radius, height: Math.max(0, a - i.radius), opacity: o });
+      const s = Array.isArray(n.material) ? n.material[0] : n.material, o = n.visible === !1 ? 0 : (t = s == null ? void 0 : s.opacity) != null ? t : 1, { x: r, y: l, z: a } = n.position, h = wm({ level: i.level, radius: i.radius, height: Math.max(0, a - i.radius), opacity: o });
       i.pool.position.set(r, l, 0.5), i.pool.scale.set(h.pool.scale, h.pool.scale, 1), i.pool.material.opacity = h.pool.opacity, i.halo.position.set(r, l, Math.max(0.5, a - i.radius * 0.9)), i.halo.scale.set(h.halo.scale, h.halo.scale, 1), i.halo.material.opacity = h.halo.opacity, i.light.position.set(r, l, a), i.light.intensity = h.light.intensity, i.light.distance = h.light.distance;
     }
   }
@@ -17803,5 +17807,5 @@ class Am {
   }
 }
 export {
-  Am as default
+  Tm as default
 };
