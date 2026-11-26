@@ -34,6 +34,9 @@ This fork is used by LoreWeaver Table. It changes the library in these ways (eac
 | Pool-hit illumination & post-roll line-up (`diceArrange.js`) | `highlightDice(ids)` softly lights winning pool dice; `arrangeDice(ids)` glides kept dice into a centered readable row on narrow screens |
 | Tap/hover 3D die raycasting (`dicePick.js`) | `pickDie(clientX, clientY)` raycasts pointer clicks onto resting 3D dice; `setHoverDie(id)` draws a selection ring under the hovered die |
 | Vector icon faces & custom `d4` labels (`faceIcons.js`) | Supports `icon:<name>` (`star`, `sun`, `moon`, `sword`, `shield`, `skull`, `diamond`, `spark`, `fate-plus`, `fate-minus`) and `svg:<pathData>` vector faces, plus custom face labels on `d4` |
+| Fire and shadow surfaces (`diceShaders.js`) | Fire's flames churn across the die and shadow's smoke swirls inside it, drawn with noise in the die's own space (`vLwObj`) so they ride with it as it tumbles. Each face hands the shader its number mask (`setEffectLabelMap`), so the effect stays off the numbers: fire's glow white-hot, shadow's keep a pale light. An effect's rim takes the set's `rim` colour, not its `light` |
+| Auras: embers and smoke (`dieAura.js`) | A set with an `aura` (or the fire or shadow effect) gives off particles as it rolls, most while fast: embers that float up the screen over the dice, or smoke that stays low on the table under them. They linger a moment after the throw, drawn until the last has died out, and go with the dice. They cover rather than add light, so they show on a light page too |
+| Flickering light and shade (`lightGlow.js`) | A fire set's light flickers (`flickerAt`, or a set's `flicker`). A light darker than an eighth of white is a shade (`shadeOf`): a pool of darkness that keeps close to the die, and a set with a shade doesn't light its own faces |
 | `dist` is committed | The app installs the fork straight from GitHub |
 
 Tests: `npm test` (Node's own test runner).

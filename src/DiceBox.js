@@ -9,7 +9,8 @@ import { THEMES } from './const/themes.js';
 
 import { debounce } from "./helpers"
 import { throwVector, DEFAULT_THROW_SPREAD } from "./throwVector.js"
-import { glowFrame, lightOf } from "./lightGlow.js"
+import { flickerAt, glowFrame, lightOf } from "./lightGlow.js"
+import { AuraField, auraOf, emitCount } from "./dieAura.js"
 import { disposeDieMesh } from "./gpuCache.js"
 import { responsiveBaseScale, scaleChanged } from "./viewportScale.js"
 import { dataUrlToArrayBuffer, impactAudioParams, playImpactClip, soundMaterialOf } from "./diceAudio.js"
@@ -175,6 +176,7 @@ class DiceBox {
 				this.DiceFactory.shaderTime.value = (typeof performance !== 'undefined' ? performance.now() : Date.now()) / 1000;
 			}
 			this.updateDieLights();
+			this.updateAuras();
 		};
 
 		// LoreWeaver fork: a soft room for metal, glass and wood to reflect. Without it they all look matte.
@@ -1162,6 +1164,8 @@ class DiceBox {
 			this.diceList.push(dicemesh);
 			// LoreWeaver fork: a die whose set glows lights the table around it.
 			this.addDieLight(dicemesh, look ?? this.colorData);
+			// LoreWeaver fork: a die whose set has an aura gives off embers or smoke as it rolls (src/dieAura.js).
+			this.addDieAura(dicemesh, look ?? this.colorData);
 		} else {
 			dicemesh = reset
 			// dicemesh.result = [];
@@ -1351,6 +1355,8 @@ class DiceBox {
 		if (this.running == threadid && this.throwFinished()) {
 			this.running = false;
 			this.rolling = false;
+			// LoreWeaver fork: the dice's auras linger a moment after they land, then die out.
+			this.lingerAuras();
 			if(callback) callback.call(this, this.notationVectors);
 			
 			this.running = Date.now();
@@ -1440,7 +1446,7 @@ class DiceBox {
 	 * @param {object} colorset - Its colorset.
 	 */
 	addDieLight(dicemesh, colorset) {
-		const { level, color } = lightOf(colorset);
+		const { level, color, reach } = lightOf(colorset);
 		if (!(level > 0) || !this.scene) return;
 		if (!dicemesh.geometry.boundingSphere) dicemesh.geometry.computeBoundingSphere();
 		const radius = dicemesh.geometry.boundingSphere?.radius || 1;
@@ -1450,20 +1456,24 @@ class DiceBox {
 		const halo = new THREE.Sprite(new THREE.SpriteMaterial(look));
 		const light = new THREE.PointLight(tint, 0, radius * 12, 2);
 		this.scene.add(pool, halo, light);
-		dicemesh.userData.dieLight = { level, radius, pool, halo, light };
+		// A fire die's light flickers, each die in its own time.
+		const flicker = colorset?.flicker ?? colorset?.effect === 'fire';
+		dicemesh.userData.dieLight = { level, radius, reach, pool, halo, light, flicker, seed: Math.random() * 100 };
 	}
 
 	/**
 	 * LoreWeaver fork: moves each die's light with it, and fades it as the die fades. Runs before every frame.
 	 */
 	updateDieLights() {
+		const seconds = (typeof performance !== 'undefined' ? performance.now() : Date.now()) / 1000;
 		for (const dicemesh of this.diceList) {
 			const glow = dicemesh.userData?.dieLight;
 			if (!glow) continue;
 			const material = Array.isArray(dicemesh.material) ? dicemesh.material[0] : dicemesh.material;
-			const opacity = dicemesh.visible === false ? 0 : (material?.opacity ?? 1);
+			const flicker = glow.flicker ? flickerAt(seconds, glow.seed) : 1;
+			const opacity = (dicemesh.visible === false ? 0 : (material?.opacity ?? 1)) * flicker;
 			const { x, y, z } = dicemesh.position;
-			const frame = glowFrame({ level: glow.level, radius: glow.radius, height: Math.max(0, z - glow.radius), opacity });
+			const frame = glowFrame({ level: glow.level, radius: glow.radius, height: Math.max(0, z - glow.radius), opacity, reach: glow.reach });
 			glow.pool.position.set(x, y, 0.5);
 			glow.pool.scale.set(frame.pool.scale, frame.pool.scale, 1);
 			glow.pool.material.opacity = frame.pool.opacity;
@@ -1491,9 +1501,81 @@ class DiceBox {
 		delete dicemesh.userData.dieLight;
 	}
 
+	/**
+	 * LoreWeaver fork: gives a die whose set has an aura (src/dieAura.js) its share of that aura's particles. The
+	 * die gives off while it rolls, and until lingerAuras says stop. A die without an aura gets nothing.
+	 * @param {object} dicemesh - The die.
+	 * @param {object} colorset - Its colorset.
+	 */
+	addDieAura(dicemesh, colorset) {
+		const aura = auraOf(colorset);
+		if (!aura || !this.scene) return;
+		if (!dicemesh.geometry.boundingSphere) dicemesh.geometry.computeBoundingSphere();
+		this.auraFields = this.auraFields || {};
+		if (!this.auraFields[aura.id]) this.auraFields[aura.id] = new AuraField(aura, this.scene);
+		dicemesh.userData.aura = { id: aura.id, radius: dicemesh.geometry.boundingSphere?.radius || 1, carry: 0, until: Infinity };
+	}
+
+	/**
+	 * LoreWeaver fork: moves every aura on a frame. Runs before every frame the dice are drawn.
+	 */
+	updateAuras() {
+		if (!this.auraFields) return;
+		const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+		const dt = Math.min(0.1, Math.max(0, (now - (this._auraLast || now)) / 1000));
+		this._auraLast = now;
+		for (const dicemesh of this.diceList) {
+			const state = dicemesh.userData?.aura;
+			const field = state && this.auraFields[state.id];
+			if (!field || now > state.until) continue;
+			const material = Array.isArray(dicemesh.material) ? dicemesh.material[1] : dicemesh.material;
+			// A die fading away gives off nothing more.
+			if (dicemesh.visible === false || (material?.opacity ?? 1) < 0.6) continue;
+			const speed = dicemesh.body?.velocity ? dicemesh.body.velocity.length() / state.radius : 0;
+			const { count, carry } = emitCount(field.aura, speed, dt, state.carry);
+			state.carry = carry;
+			if (count) field.emit(dicemesh, state.radius, count);
+		}
+		const height = this.renderer?.domElement?.height || 1;
+		const pixelScale = (height / 2) / Math.tan(((this.camera?.fov || 20) * Math.PI) / 360);
+		this._auraAlive = Object.values(this.auraFields).reduce((sum, field) => sum + field.step(dt, pixelScale), 0);
+	}
+
+	/**
+	 * LoreWeaver fork: after a throw, each die with an aura gives off a little longer, then stops; the table is
+	 * drawn until the last of it has died out, so the embers and smoke settle instead of freezing.
+	 */
+	lingerAuras() {
+		const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+		let lingering = false;
+		for (const dicemesh of this.diceList) {
+			const state = dicemesh.userData?.aura;
+			if (!state) continue;
+			const field = this.auraFields?.[state.id];
+			state.until = now + (field?.aura.linger ?? 0) * 1000;
+			lingering = true;
+		}
+		if (!lingering || this._auraLoop || typeof requestAnimationFrame !== 'function') return;
+		this._auraLoop = true;
+		const step = () => {
+			const emitting = this.diceList.some((die) => die.userData?.aura && (typeof performance !== 'undefined' ? performance.now() : Date.now()) <= die.userData.aura.until);
+			if (this.rolling || !this.renderer || (!emitting && !this._auraAlive)) {
+				this._auraLoop = false;
+				if (this.renderer && !this.rolling) this.renderer.render(this.scene, this.camera);
+				return;
+			}
+			this.renderer.render(this.scene, this.camera);
+			requestAnimationFrame(step);
+		};
+		requestAnimationFrame(step);
+	}
+
 	clearDice() {
 		this.running = false;
 		if (this._hoverRing) this._hoverRing.visible = false;
+		// LoreWeaver fork: the dice's embers and smoke go with them.
+		Object.values(this.auraFields || {}).forEach((field) => field.clear());
+		this._auraAlive = 0;
 		let dice;
 		while (dice = this.diceList.pop()) {
 			this.removeDieLight(dice);

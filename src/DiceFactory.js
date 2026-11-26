@@ -3,11 +3,12 @@ import {DicePreset} from './DicePreset.js'
 import {MATERIALTYPES} from "./const/materialtypes"
 import {DICE_GEOM} from "./const/dice"
 import { applyGlow, glowLevel } from "./glow.js"
+import { shadeOf } from "./lightGlow.js"
 import { applyDepthSettings } from "./materialDepth.js"
 import { BoundedTextureCache } from "./gpuCache.js"
 import { canvasFont, resolveEdgeColor } from "./faceStyle.js"
 import { paintProceduralTexture, proceduralPatternOf } from "./proceduralTextures.js"
-import { applyDiceShader, resolveEffect } from "./diceShaders.js"
+import { applyDiceShader, resolveEffect, setEffectLabelMap } from "./diceShaders.js"
 import { d4LabelTables, paintFaceIcon, parseFaceIcon } from "./faceIcons.js"
 
 import * as THREE from "three"
@@ -233,7 +234,8 @@ class DiceFactory {
 				mat.envMapIntensity = (MATERIALTYPES[this.dice_material]?.envMapIntensity ?? 1) * (this.shine || 0);
 				// LoreWeaver fork: Fresnel gemstone & elemental surface shaders (src/diceShaders.js).
 				const effectId = resolveEffect(this.dice_effect, this.dice_material);
-				if (effectId) applyDiceShader(mat, effectId, this.shaderTime, this.colordata?.light || null);
+				// The rim takes the set's own rim colour, or the effect's; not its light, which may be dark (shadow).
+				if (effectId) applyDiceShader(mat, effectId, this.shaderTime, this.colordata?.rim || null);
 			} else {
 				mat = new THREE.MeshPhongMaterial(this.material_options);
 			}
@@ -252,6 +254,8 @@ class DiceFactory {
 			} else {
 				canvasTextures = this.createTextMaterial(diceobj, labels, i, size, margin, this.dice_texture_rand, this.label_color_rand, this.label_outline_rand, this.dice_color_rand, allowcache);
 				mat.map = canvasTextures.composite;
+				// LoreWeaver fork: a surface effect (fire, shadow) stays off the number (src/diceShaders.js).
+				setEffectLabelMap(mat, canvasTextures.glow);
 
 				// LoreWeaver fork: on metal, the numbers light themselves, scaled by how metallic it is, because
 				// a metal face reflects the room and darkens painted numbers. Plastic, glass and wood are unchanged.
@@ -617,7 +621,8 @@ class DiceFactory {
 		this.dice_material = colordata?.texture?.material || 'none';
 		this.edge_color = resolveEdgeColor(colordata);
 		// LoreWeaver fork: how brightly the set lights its own faces, 0 (the original) to 1 (src/glow.js).
-		this.dice_glow = glowLevel(colordata.glow);
+		// A set whose light is a shade (src/lightGlow.js) casts darkness around it, and doesn't shine itself.
+		this.dice_glow = shadeOf(colordata.light) ? 0 : glowLevel(colordata.glow);
 		// LoreWeaver fork: optional elemental surface shader ('fire', 'frost', 'storm', 'arcane', 'gem').
 		this.dice_effect = colordata.effect || '';
 	}
