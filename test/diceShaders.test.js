@@ -52,3 +52,17 @@ test('the effect stays off the number once the face gives its number mask', () =
 	assert.equal(shader.uniforms.uLwHasLabel.value, 1)
 	assert.equal(setEffectLabelMap({}, mask), false)
 })
+
+test('rim-only effects (gem, frost, storm, arcane) compile lean GLSL without 3D noise or extra varyings', () => {
+	for (const id of ['gem', 'frost', 'storm', 'arcane']) {
+		const frag = effectGlsl(id)
+		assert.equal(frag.declarations.includes('lwFbm'), false, `${id} should not include 3D noise`)
+		assert.equal(frag.declarations.includes('vLwObj'), false, `${id} should not declare vLwObj`)
+		assert.equal(frag.body.includes('lwFlame'), false)
+		assert.equal(frag.body.includes('lwSmoke'), false)
+	}
+	assert.ok(effectGlsl('fire').body.includes('lwFbm2'))
+	assert.equal(effectGlsl('fire').body.includes('lwSmoke'), false)
+	assert.ok(effectGlsl('shadow').body.includes('lwFbm2'))
+	assert.equal(effectGlsl('shadow').body.includes('lwFlame'), false)
+})

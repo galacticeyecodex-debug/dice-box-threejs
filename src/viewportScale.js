@@ -30,3 +30,23 @@ export function responsiveBaseScale(width, height, baseScale = 100) {
 export function scaleChanged(previous, next) {
 	return Math.abs((Number(previous) || 0) - (Number(next) || 0)) >= 2
 }
+
+const COMPACT_WIDTH_PX = 600
+const COMPACT_MIN_DIM_PX = 520
+
+/**
+ * Picks an adaptive WebGL quality profile for the current viewport: compact phones get a 512px shadow map
+ * and 60% aura particle density (cleaner on small dice, ~4x faster shadows); tablets/desktops get full 1024px.
+ * Face textures are capped at 256px on all devices (2x-4x supersampled over on-screen face size, 4x less VRAM).
+ * @param {number} width - Container width in CSS pixels.
+ * @param {number} height - Container height in CSS pixels.
+ * @returns {{tier:'compact'|'standard', shadowMapSize:number, auraScale:number, maxTextureSize:number}}
+ */
+export function deviceQuality(width, height) {
+	const w = Number(width) || 0
+	const h = Number(height) || 0
+	const compact = (w > 0 && w <= COMPACT_WIDTH_PX) || (w > 0 && h > 0 && Math.min(w, h) <= COMPACT_MIN_DIM_PX)
+	return compact
+		? { tier: 'compact', shadowMapSize: 512, auraScale: 0.6, maxTextureSize: 256 }
+		: { tier: 'standard', shadowMapSize: 1024, auraScale: 1.0, maxTextureSize: 256 }
+}

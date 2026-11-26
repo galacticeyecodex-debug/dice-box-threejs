@@ -49,10 +49,10 @@ export function auraOf(colorset = {}) {
  * @param {number} [carry=0] - What was left over last frame.
  * @returns {{count:number, carry:number}} Particles to make now, and what to carry.
  */
-export function emitCount(aura, speedRadii, dt, carry = 0) {
-	if (!aura || !(dt > 0)) return { count: 0, carry }
+export function emitCount(aura, speedRadii, dt, carry = 0, rateScale = 1) {
+	if (!aura || !(dt > 0) || !(rateScale > 0)) return { count: 0, carry }
 	const pace = clamp(speedRadii / FULL_SPEED_RADII, 0, 1)
-	const rate = aura.restRate + (aura.rate - aura.restRate) * pace
+	const rate = (aura.restRate + (aura.rate - aura.restRate) * pace) * rateScale
 	const total = carry + rate * Math.min(dt, 0.1)
 	const count = Math.floor(total)
 	return { count, carry: total - count }

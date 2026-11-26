@@ -19,8 +19,62 @@ const HALO_MAX_OPACITY = 0.7
 // A light darker than this is a shade, and a shade reaches this share as far as a light.
 const SHADE_LUMINANCE = 0.12
 const SHADE_REACH = 0.55
+// Maximum persistent THREE.PointLight instances kept in the scene so NUM_POINT_LIGHTS never changes between throws.
+export const MAX_DIE_LIGHTS = 2
 
 const clamp = (value, low, high) => Math.min(Math.max(value, low), high)
+
+/**
+ * Packs any number of glowing dice into a fixed pool of real PointLights (MAX_DIE_LIGHTS), skipping dark shades.
+ * For 1..maxLights glowing dice, each die keeps its exact light; for larger multi-die throws (such as an 8d6 Fireball),
+ * dice are grouped spatially into maxLights weighted centroids so neighbouring dice still catch the glow without
+ * forcing Three.js to recompile shaders for every die count.
+ * @param {Array<{x:number, y:number, z:number, color:string, intensity:number, distance:number, shade?:boolean}>} sources
+ * @param {number} [maxLights=MAX_DIE_LIGHTS]
+ * @returns {Array<{x:number, y:number, z:number, color:string, intensity:number, distance:number}>}
+ */
+export function packDieLights(sources = [], maxLights = MAX_DIE_LIGHTS) {
+	if (!Array.isArray(sources) || !(maxLights > 0)) return []
+	const lit = sources.filter((s) => s && !s.shade && s.intensity > 0)
+	if (lit.length <= maxLights) {
+		return lit.map(({ x, y, z, color, intensity, distance }) => ({ x, y, z, color, intensity, distance }))
+	}
+	// Split along whichever table axis (x or y) the glowing dice are spread wider across.
+	let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
+	for (const s of lit) {
+		if (s.x < minX) minX = s.x
+		if (s.x > maxX) maxX = s.x
+		if (s.y < minY) minY = s.y
+		if (s.y > maxY) maxY = s.y
+	}
+	const axis = (maxX - minX) >= (maxY - minY) ? 'x' : 'y'
+	const ordered = [...lit].sort((a, b) => a[axis] - b[axis])
+	const packed = []
+	for (let slot = 0; slot < maxLights; slot += 1) {
+		const start = Math.floor((slot * ordered.length) / maxLights)
+		const end = Math.floor(((slot + 1) * ordered.length) / maxLights)
+		const group = ordered.slice(start, end)
+		if (!group.length) continue
+		let sumW = 0, wx = 0, wy = 0, wz = 0, maxInt = 0, maxDist = 0
+		for (const s of group) {
+			sumW += s.intensity
+			wx += s.x * s.intensity
+			wy += s.y * s.intensity
+			wz += s.z * s.intensity
+			if (s.intensity > maxInt) maxInt = s.intensity
+			if (s.distance > maxDist) maxDist = s.distance
+		}
+		packed.push({
+			x: wx / sumW,
+			y: wy / sumW,
+			z: wz / sumW,
+			color: group[0].color,
+			intensity: Math.min(maxInt * 1.4, sumW * 0.65),
+			distance: maxDist * 1.25,
+		})
+	}
+	return packed
+}
 
 /**
  * Tells whether a light is so dark it is a shade instead: a pool of darkness, which keeps close to the die, as a

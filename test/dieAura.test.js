@@ -28,6 +28,9 @@ test('a die gives off more while moving fast than at rest', () => {
 	const fast = emitCount(aura, 1000, 1)
 	const rest = emitCount(aura, 0, 0.1 * 10, 0)
 	assert.ok(fast.count > rest.count)
+	const scaled = emitCount(aura, 1000, 0.1, 0, 0.6)
+	const full = emitCount(aura, 1000, 0.1, 0, 1.0)
+	assert.ok(scaled.count < full.count && scaled.count > 0)
 })
 
 test('a slow rate still gives off evenly, carrying what is left over', () => {

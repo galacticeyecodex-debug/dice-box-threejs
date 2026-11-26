@@ -5,42 +5,42 @@ export class DiceColors {
 	
 	constructor(options = {}) {
 		this.colorsets = {}
+		this.imageCache = new Map()
 		this.assetPath = options.assetPath
 		// LoreWeaver fork: optional function(path) giving each texture's URL, e.g. a data URL in a one-file app.
 		this.assetUrl = options.assetUrl
 	}
 
 	async ImageLoader(data) {
-
 		if (Array.isArray(data)) {
-			for(let i = 0, l = data.length; i < l; i++){
-				data[i] = await this.ImageLoader(data[i])
-			}
-			return data
+			return Promise.all(data.map((entry) => this.ImageLoader(entry)))
 		}
-		
+		const jobs = []
 		if (data.source && data.source != '') {
-			data.texture = await this.loadImage(data.source)
+			jobs.push(this.loadImage(data.source).then((img) => { data.texture = img }))
 		}
-		
 		if (data.source_bump && data.source_bump != '') {
-			data.bump = await this.loadImage(data.source_bump)
+			jobs.push(this.loadImage(data.source_bump).then((img) => { data.bump = img }))
 		}
-
+		if (jobs.length) await Promise.all(jobs)
 		return data
 	}
 
 	loadImage(src){
-		return new Promise((resolve, reject) => {
+		const url = typeof this.assetUrl === 'function' ? this.assetUrl(src) : this.assetPath + src
+		if (this.imageCache.has(url)) return this.imageCache.get(url)
+		const promise = new Promise((resolve, reject) => {
 			let img = new Image()
 			img.onload = () => resolve(img)
 			img.crossOrigin = "anonymous";
-			img.src = typeof this.assetUrl === 'function' ? this.assetUrl(src) : this.assetPath + src
+			img.src = url
 			img.onerror = (error) => reject(error)
-			}).catch(e => {
-				console.error("Unable to load image texture")
-				// throw new Error("Unable to load image")
-			})
+		}).catch((e) => {
+			this.imageCache.delete(url)
+			console.error("Unable to load image texture")
+		})
+		this.imageCache.set(url, promise)
+		return promise
 	}
 
 	// randomColor() {

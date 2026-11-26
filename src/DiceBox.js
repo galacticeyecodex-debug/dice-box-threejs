@@ -9,10 +9,11 @@ import { THEMES } from './const/themes.js';
 
 import { debounce } from "./helpers"
 import { throwVector, DEFAULT_THROW_SPREAD } from "./throwVector.js"
-import { flickerAt, glowFrame, lightOf } from "./lightGlow.js"
+import { MAX_DIE_LIGHTS, flickerAt, glowFrame, lightOf, packDieLights, shadeOf } from "./lightGlow.js"
 import { AuraField, auraOf, emitCount } from "./dieAura.js"
-import { disposeDieMesh } from "./gpuCache.js"
-import { responsiveBaseScale, scaleChanged } from "./viewportScale.js"
+import { ShaderProgramKeeper, disposeDieMesh } from "./gpuCache.js"
+import { deviceQuality, responsiveBaseScale, scaleChanged } from "./viewportScale.js"
+import { advancePlayback, createThrowRecorder, sampleDiePose } from "./throwPlayback.js"
 import { dataUrlToArrayBuffer, impactAudioParams, playImpactClip, soundMaterialOf } from "./diceAudio.js"
 import { burstProfile, celebrationMaterials, fumbleWobble } from "./celebration.js"
 import { easeInOut, lineupPositions } from "./diceArrange.js"
@@ -179,6 +180,19 @@ class DiceBox {
 			this.updateAuras();
 		};
 
+		// LoreWeaver fork: keep compiled WebGL shader programs warm across rolls and track active post-roll loops.
+		this.programKeeper = new ShaderProgramKeeper();
+		this._activePostLoops = 0;
+		this.auraScale = 1;
+		this._playback = null;
+		this._recorder = null;
+		// LoreWeaver fork: fixed pool of persistent PointLights so NUM_POINT_LIGHTS never changes between throws.
+		this.dieLightPool = Array.from({ length: MAX_DIE_LIGHTS }, () => {
+			const light = new THREE.PointLight(0xffffff, 0, 1, 2);
+			this.scene.add(light);
+			return light;
+		});
+
 		// LoreWeaver fork: a soft room for metal, glass and wood to reflect. Without it they all look matte.
 		if (this.shine > 0) {
 			const pmrem = new THREE.PMREMGenerator(this.renderer);
@@ -189,7 +203,8 @@ class DiceBox {
 		this.setDimensions(this.dimensions);
 
 		this.world.gravity.set(0, 0, -9.8 * this.gravity_multiplier);
-		this.world.broadphase = new CANNON.NaiveBroadphase();
+		// LoreWeaver fork: SAPBroadphase (O(n log n)) scales much better than NaiveBroadphase (O(n^2)) for multi-die pools.
+		this.world.broadphase = new CANNON.SAPBroadphase(this.world);
 		this.world.solver.iterations = 14;
 		this.world.allowSleep = true;
 
@@ -423,11 +438,12 @@ class DiceBox {
 			return Promise.resolve()
 		}
 		return new Promise((resolve) => {
+			this._activePostLoops += 1
 			const start = performance.now()
 			const step = (now) => {
 				const share = Math.min(1, (now - start) / duration)
 				paint(share)
-				if (share >= 1) { resolve(); return }
+				if (share >= 1) { this._activePostLoops = Math.max(0, this._activePostLoops - 1); resolve(); return }
 				requestAnimationFrame(step)
 			}
 			requestAnimationFrame(step)
@@ -469,11 +485,12 @@ class DiceBox {
 			return Promise.resolve()
 		}
 		return new Promise((resolve) => {
+			this._activePostLoops += 1
 			const start = performance.now()
 			const step = (now) => {
 				const share = Math.min(1, (now - start) / duration)
 				paint(share)
-				if (share >= 1) { resolve(); return }
+				if (share >= 1) { this._activePostLoops = Math.max(0, this._activePostLoops - 1); resolve(); return }
 				requestAnimationFrame(step)
 			}
 			requestAnimationFrame(step)
@@ -582,6 +599,7 @@ class DiceBox {
 			return { mesh, points, positions, velocities, origin: mesh.position.clone(), scale: mesh.scale.clone() }
 		})
 		return new Promise((resolve) => {
+			this._activePostLoops += 1
 			const start = performance.now()
 			const step = (now) => {
 				const share = Math.min(1, (now - start) / duration)
@@ -625,6 +643,7 @@ class DiceBox {
 					}
 				})
 				this.renderer.render(this.scene, this.camera)
+				this._activePostLoops = Math.max(0, this._activePostLoops - 1)
 				resolve()
 			}
 			requestAnimationFrame(step)
@@ -674,6 +693,7 @@ class DiceBox {
 		const tiltAxis = new THREE.Vector3(1, 0.35, 0).normalize()
 		const wobbleQuat = new THREE.Quaternion()
 		return new Promise((resolve) => {
+			this._activePostLoops += 1
 			const start = performance.now()
 			const step = (now) => {
 				const share = Math.min(1, (now - start) / duration)
@@ -715,6 +735,7 @@ class DiceBox {
 					points.material.dispose()
 				})
 				this.renderer.render(this.scene, this.camera)
+				this._activePostLoops = Math.max(0, this._activePostLoops - 1)
 				resolve()
 			}
 			requestAnimationFrame(step)
@@ -753,6 +774,7 @@ class DiceBox {
 		if (mesh.customDepthMaterial?.userData?.shadowFade) return mesh.customDepthMaterial.userData.shadowFade
 		const fade = { value: 1 }
 		const material = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking })
+		material.customProgramCacheKey = () => 'lw-shadow-fade'
 		material.userData.shadowFade = fade
 		material.onBeforeCompile = (shader) => {
 			shader.uniforms.shadowStrength = fade
@@ -792,7 +814,9 @@ class DiceBox {
 			if (this.renderer) this.renderer.render(this.scene, this.camera)
 		}
 		return new Promise((resolve) => {
+			let looping = false
 			const done = () => {
+				if (looping) { this._activePostLoops = Math.max(0, this._activePostLoops - 1); looping = false }
 				paint(1)
 				// A die faded right away casts no shadow at all.
 				meshes.forEach((mesh) => { mesh.castShadow = this.shadows && opacity > 0 })
@@ -800,6 +824,8 @@ class DiceBox {
 				resolve()
 			}
 			if (!meshes.length || !(duration > 0) || typeof requestAnimationFrame !== 'function') { done(); return }
+			looping = true
+			this._activePostLoops += 1
 			const start = performance.now()
 			const step = (now) => {
 				const share = Math.min(1, (now - start) / duration)
@@ -827,7 +853,11 @@ class DiceBox {
 		this.display.aspect = Math.min(this.display.currentWidth / this.display.containerWidth, this.display.currentHeight / this.display.containerHeight);
 		this.display.scale = Math.sqrt(this.display.containerWidth * this.display.containerWidth + this.display.containerHeight * this.display.containerHeight) / 13;
 
-		// LoreWeaver fork: keep die geometry scaled cleanly across phone/tablet orientation changes.
+		// LoreWeaver fork: keep die geometry scaled cleanly across phone/tablet orientation changes, and adapt
+		// shadow-map resolution and aura particle density for compact phone viewports.
+		const quality = deviceQuality(rawW, rawH);
+		this.auraScale = quality.auraScale;
+		if (this.DiceFactory) this.DiceFactory.maxTextureSize = quality.maxTextureSize;
 		const nextBaseScale = responsiveBaseScale(rawW, rawH, this.baseScale);
 		if (this.DiceFactory && scaleChanged(this.DiceFactory.baseScale, nextBaseScale)) {
 			this.DiceFactory.updateConfig({ baseScale: nextBaseScale });
@@ -870,8 +900,8 @@ class DiceBox {
 		this.light.shadow.camera.far = maxwidth * 5;
 		this.light.shadow.camera.fov = 50;
 		this.light.shadow.bias = 0.001;
-		this.light.shadow.mapSize.width = 1024;
-		this.light.shadow.mapSize.height = 1024;
+		this.light.shadow.mapSize.width = quality.shadowMapSize;
+		this.light.shadow.mapSize.height = quality.shadowMapSize;
 		this.scene.add(this.light);
 
 		this.light_amb = new THREE.HemisphereLight( 0xffffbb, 0x676771, this.light_intensity );
@@ -1190,61 +1220,62 @@ class DiceBox {
 		this.world.addBody(dicemesh.body);
 	}
 
-	eventCollide({body, target}) {
-
-		// collision events happen simultaneously for both colliding bodies
-		// all this sanity checking helps limits sounds being played
-
-		// don't play sounds if we're simulating
-		if (this.animstate == 'simulate') return;
-		if (!this.sounds || !body) return;
-
-		// let volume = parseInt(window.DiceFavorites.settings.volume.value) || 0;
-		if (this.volume <= 0) return;
-
-		let now = Date.now();
-		let currentSoundType = (body.mass > 0) ? 'dice' : 'table';
-
-		// the idea here is that a dice clack should never be skipped in favor of a table sound
-		// if ((don't play sounds if we played one this world step, or there hasn't been enough delay) AND 'this sound IS NOT a dice clack') then 'skip it'
-		if ((this.lastSoundStep == body.world.stepnumber || this.lastSound > now) && currentSoundType != 'dice') return;
-
-		// also skip if it's too early and both last sound and this sound are the same
-		if ((this.lastSoundStep == body.world.stepnumber || this.lastSound > now) && currentSoundType == 'dice' && this.lastSoundType == 'dice') return;
-
-		if (body.mass > 0) { // dice to dice collision
-
-			let speed = body.velocity.length();
-			// also don't bother playing at low speeds
-			if (speed < 250) return;
-
-			// LoreWeaver fork: play each die's own material sound with mass/velocity pitch variation.
-			const dieMat = body.diceShape === "d2" ? 'coin' : (body.soundMaterial || this.sound_dieMaterial);
+	/**
+	 * LoreWeaver fork: plays one impact clip (used both for live reroll collisions and recorded playback cues).
+	 * @param {'dice'|'table'} kind - Whether two dice collided or a die struck the table.
+	 * @param {{speed:number, mass:number, diceShape?:string, soundMaterial?:string}} info - Impact details.
+	 */
+	playCollisionSound(kind, { speed, mass, diceShape, soundMaterial }) {
+		if (!this.sounds || this.volume <= 0) return;
+		if (kind === 'dice') {
+			const dieMat = diceShape === "d2" ? 'coin' : (soundMaterial || this.sound_dieMaterial);
 			const clips = this.sounds_dice[dieMat] || this.sounds_dice[this.sound_dieMaterial] || [];
 			const sound = clips[Math.floor(Math.random() * clips.length)];
 			if (sound) {
-				playImpactClip(sound, this._audioCtx, impactAudioParams({ speed, mass: body.mass, volume: this.volume }));
+				playImpactClip(sound, this._audioCtx, impactAudioParams({ speed, mass, volume: this.volume }));
 			}
+		} else {
+			const soundlist = this.sounds_table[this.surface] || [];
+			const sound = soundlist[Math.floor(Math.random() * soundlist.length)];
+			if (sound) {
+				playImpactClip(sound, this._audioCtx, impactAudioParams({ speed, mass, volume: this.volume }));
+			}
+		}
+	}
+
+	eventCollide({body, target}) {
+		if (!body) return;
+		const simulating = this.animstate == 'simulate';
+		if (simulating && !this._recorder) return;
+		if (!simulating && (!this.sounds || this.volume <= 0)) return;
+
+		let now = simulating ? this.iteration * this.framerate * 1000 : Date.now();
+		let currentSoundType = (body.mass > 0) ? 'dice' : 'table';
+		const stepNum = body.world?.stepnumber;
+
+		if ((this.lastSoundStep == stepNum || this.lastSound > now) && currentSoundType != 'dice') return;
+		if ((this.lastSoundStep == stepNum || this.lastSound > now) && currentSoundType == 'dice' && this.lastSoundType == 'dice') return;
+
+		let event = null;
+		if (body.mass > 0) { // dice to dice collision
+			let speed = body.velocity.length();
+			if (speed < 250) return;
+			event = { kind: 'dice', speed, mass: body.mass, diceShape: body.diceShape, soundMaterial: body.soundMaterial };
 			this.lastSoundType = 'dice';
-
-
 		} else { // dice to table collision
 			let speed = target.velocity.length();
-			// also don't bother playing at low speeds
 			if (speed < 250) return;
-
-			let surface = this.surface;
-
-			let soundlist = this.sounds_table[surface] || [];
-			let sound = soundlist[Math.floor(Math.random() * soundlist.length)];
-			if (sound) {
-				playImpactClip(sound, this._audioCtx, impactAudioParams({ speed, mass: target.mass, volume: this.volume }));
-			}
+			event = { kind: 'table', speed, mass: target.mass };
 			this.lastSoundType = 'table';
 		}
 
-		this.lastSoundStep = body.world.stepnumber;
+		this.lastSoundStep = stepNum;
 		this.lastSound = now + this.soundDelay;
+		if (simulating) {
+			this._recorder.pushSound(event);
+		} else {
+			this.playCollisionSound(event.kind, event);
+		}
 	}
 
 	checkForRethrow(dicemesh) {
@@ -1316,63 +1347,118 @@ class DiceBox {
 		this.animstate = 'simulate';
 		this.iteration = 0;
 		this.rolling = true;
+		this.lastSound = 0;
+		this.lastSoundStep = -1;
+		// LoreWeaver fork: record every physics step & collision sound once so animateThrow plays back smoothly
+		// with zero live cannon-es CPU overhead per frame.
+		const recorder = createThrowRecorder(this.diceList.length, this.framerate);
+		this._recorder = recorder;
+		recorder.pushFrame(this.diceList);
 		while (!this.throwFinished(true)) {
 			++this.iteration;
 			this.world.step(this.framerate);
+			recorder.pushFrame(this.diceList);
+		}
+		this._recorder = null;
+		this._playback = recorder.finish();
+	}
+
+	/**
+	 * LoreWeaver fork: applies one interpolated playback pose frame to every die mesh (and its body velocity for aura trails).
+	 * @param {Float32Array} frame0
+	 * @param {Float32Array} frame1
+	 * @param {number} t
+	 * @param {boolean} [syncBodies=false] - True on the final frame to sync physics bodies for pickDie/arrangeDice/reroll.
+	 */
+	applyPlaybackFrame(frame0, frame1, t, syncBodies = false) {
+		const count = Math.min(this.diceList.length, this._playback?.diceCount ?? this.diceList.length);
+		for (let i = 0; i < count; i += 1) {
+			const die = this.diceList[i];
+			if (!die) continue;
+			const pose = sampleDiePose(frame0, frame1, i, t);
+			die.position.set(pose.x, pose.y, pose.z);
+			die.quaternion.set(pose.qx, pose.qy, pose.qz, pose.qw);
+			if (die.body) {
+				if (syncBodies) {
+					die.body.position.set(pose.x, pose.y, pose.z);
+					die.body.quaternion.set(pose.qx, pose.qy, pose.qz, pose.qw);
+					die.body.velocity.set(0, 0, 0);
+					die.body.angularVelocity.set(0, 0, 0);
+					die.body.type = CANNON.Body.KINEMATIC;
+				} else {
+					die.body.velocity.set(pose.vx, pose.vy, pose.vz);
+				}
+			}
 		}
 	}
 
 	animateThrow(threadid, callback){
 		this.animstate = 'throw';
+		const playback = this._playback;
+		if (playback && playback.frames.length > 0) {
+			const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+			if (!this._playbackStart) this._playbackStart = now;
+			const elapsed = (now - this._playbackStart) / 1000;
+			const { frame0, frame1, t, done, dueSounds } = advancePlayback(playback, elapsed);
+			this.applyPlaybackFrame(frame0, frame1, t, done);
+			for (const sound of dueSounds) this.playCollisionSound(sound.kind, sound);
+			this.renderer.render(this.scene, this.camera);
+
+			if (this.running == threadid && done) {
+				this._playback = null;
+				this._playbackStart = 0;
+				for (const die of this.diceList) {
+					if (die && die.result.length === 0) die.storeRolledValue(die.resultReason);
+				}
+				this.running = false;
+				this.rolling = false;
+				this.animstate = 'afterthrow';
+				this.lingerAuras();
+				if (callback) callback.call(this, this.notationVectors);
+				return;
+			}
+			if (this.running == threadid) {
+				requestAnimationFrame(() => { this.animateThrow(threadid, callback); });
+			}
+			return;
+		}
+
+		// Live physics fallback (used by reroll, which doesn't pre-simulate).
 		let time = Date.now();
 		this.last_time = this.last_time || time - (this.framerate*1000);
 		let time_diff = (time - this.last_time) / 1000;
 		++this.iteration;
-		let neededSteps = Math.floor(time_diff / this.framerate);
-
-		// this.container.style.opacity = '1';
+		let neededSteps = Math.min(4, Math.floor(time_diff / this.framerate));
 
 		for(let i = 0; i < neededSteps; i++) {
 			this.world.step(this.framerate);
-			// this.cannonDebugger.update()
 			++this.steps;
 		}
 
-		// update physics interactions visually
-		for (let i in this.scene.children) {
-			let interact = this.scene.children[i];
-			if (interact.body != undefined) {
-				interact.position.copy(interact.body.position);
-				interact.quaternion.copy(interact.body.quaternion);
+		for (const die of this.diceList) {
+			if (die?.body) {
+				die.position.copy(die.body.position);
+				die.quaternion.copy(die.body.quaternion);
 			}
 		}
 
 		this.renderer.render(this.scene, this.camera);
-		this.last_time = this.last_time + neededSteps*this.framerate*1000;
-
+		this.last_time = time;
 
 		// roll finished
 		if (this.running == threadid && this.throwFinished()) {
 			this.running = false;
 			this.rolling = false;
+			this.animstate = 'afterthrow';
 			// LoreWeaver fork: the dice's auras linger a moment after they land, then die out.
 			this.lingerAuras();
 			if(callback) callback.call(this, this.notationVectors);
-			
-			this.running = Date.now();
-			this.animateAfterThrow(this.running);
 			return;
 		}
 
 		// roll not finished, keep animating
 		if (this.running == threadid) {
-			((animateCallback, tid, at, aftercall, vecs) => {
-				if (!at && time_diff < this.framerate) {
-					setTimeout(() => { requestAnimationFrame(() => { animateCallback.call(this, tid, aftercall, vecs); }) }, (this.framerate - time_diff) * 1000);
-				} else {
-					requestAnimationFrame(() => { animateCallback.call(this, tid, aftercall, vecs); });
-				}
-			}).bind(this)(this.animateThrow, threadid, this.adaptive_timestep, callback);
+			requestAnimationFrame(() => { this.animateThrow(threadid, callback); });
 		}
 	}
 
@@ -1440,8 +1526,9 @@ class DiceBox {
 	}
 
 	/**
-	 * LoreWeaver fork: gives a die whose set glows the light it casts (src/lightGlow.js): a pool on the table, a
-	 * halo just behind it, and a small real light riding with it. A die without glow gets nothing.
+	 * LoreWeaver fork: gives a die whose set glows the light it casts (src/lightGlow.js): a pool on the table and
+	 * a halo just behind it, plus a share of the scene's fixed PointLight pool (skipping dark shades). A die without
+	 * glow gets nothing.
 	 * @param {object} dicemesh - The die.
 	 * @param {object} colorset - Its colorset.
 	 */
@@ -1452,20 +1539,22 @@ class DiceBox {
 		const radius = dicemesh.geometry.boundingSphere?.radius || 1;
 		const tint = new THREE.Color(color);
 		const look = { map: this.glowTexture(), color: tint, transparent: true, opacity: 0, depthWrite: false };
-		const pool = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial(look));
+		this.glowPlaneGeometry ||= new THREE.PlaneGeometry(1, 1);
+		const pool = new THREE.Mesh(this.glowPlaneGeometry, new THREE.MeshBasicMaterial(look));
 		const halo = new THREE.Sprite(new THREE.SpriteMaterial(look));
-		const light = new THREE.PointLight(tint, 0, radius * 12, 2);
-		this.scene.add(pool, halo, light);
+		this.scene.add(pool, halo);
 		// A fire die's light flickers, each die in its own time.
 		const flicker = colorset?.flicker ?? colorset?.effect === 'fire';
-		dicemesh.userData.dieLight = { level, radius, reach, pool, halo, light, flicker, seed: Math.random() * 100 };
+		dicemesh.userData.dieLight = { level, radius, reach, color, shade: shadeOf(color), pool, halo, flicker, seed: Math.random() * 100 };
 	}
 
 	/**
-	 * LoreWeaver fork: moves each die's light with it, and fades it as the die fades. Runs before every frame.
+	 * LoreWeaver fork: moves each die's light with it, fades it as the die fades, and packs real PointLights into
+	 * the fixed scene pool (so NUM_POINT_LIGHTS never changes across throws). Runs before every frame.
 	 */
 	updateDieLights() {
 		const seconds = (typeof performance !== 'undefined' ? performance.now() : Date.now()) / 1000;
+		const sources = [];
 		for (const dicemesh of this.diceList) {
 			const glow = dicemesh.userData?.dieLight;
 			if (!glow) continue;
@@ -1481,9 +1570,23 @@ class DiceBox {
 			glow.halo.position.set(x, y, Math.max(0.5, z - glow.radius * 0.9));
 			glow.halo.scale.set(frame.halo.scale, frame.halo.scale, 1);
 			glow.halo.material.opacity = frame.halo.opacity;
-			glow.light.position.set(x, y, z);
-			glow.light.intensity = frame.light.intensity;
-			glow.light.distance = frame.light.distance;
+			if (!glow.shade && frame.light.intensity > 0) {
+				sources.push({ x, y, z, color: glow.color, intensity: frame.light.intensity, distance: frame.light.distance, shade: false });
+			}
+		}
+		if (!this.dieLightPool?.length) return;
+		const packed = packDieLights(sources, this.dieLightPool.length);
+		for (let i = 0; i < this.dieLightPool.length; i += 1) {
+			const light = this.dieLightPool[i];
+			const slot = packed[i];
+			if (slot) {
+				light.color.set(slot.color);
+				light.position.set(slot.x, slot.y, slot.z);
+				light.intensity = slot.intensity;
+				light.distance = slot.distance;
+			} else {
+				light.intensity = 0;
+			}
 		}
 	}
 
@@ -1494,10 +1597,14 @@ class DiceBox {
 	removeDieLight(dicemesh) {
 		const glow = dicemesh?.userData?.dieLight;
 		if (!glow) return;
-		this.scene.remove(glow.pool, glow.halo, glow.light);
-		glow.pool.geometry.dispose();
-		glow.pool.material.dispose();
-		glow.halo.material.dispose();
+		this.scene.remove(glow.pool, glow.halo);
+		if (this.programKeeper) {
+			this.programKeeper.keepOrDispose(glow.pool.material);
+			this.programKeeper.keepOrDispose(glow.halo.material);
+		} else {
+			glow.pool.material.dispose();
+			glow.halo.material.dispose();
+		}
 		delete dicemesh.userData.dieLight;
 	}
 
@@ -1532,7 +1639,7 @@ class DiceBox {
 			// A die fading away gives off nothing more.
 			if (dicemesh.visible === false || (material?.opacity ?? 1) < 0.6) continue;
 			const speed = dicemesh.body?.velocity ? dicemesh.body.velocity.length() / state.radius : 0;
-			const { count, carry } = emitCount(field.aura, speed, dt, state.carry);
+			const { count, carry } = emitCount(field.aura, speed, dt, state.carry, this.auraScale ?? 1);
 			state.carry = carry;
 			if (count) field.emit(dicemesh, state.radius, count);
 		}
@@ -1561,10 +1668,11 @@ class DiceBox {
 			const emitting = this.diceList.some((die) => die.userData?.aura && (typeof performance !== 'undefined' ? performance.now() : Date.now()) <= die.userData.aura.until);
 			if (this.rolling || !this.renderer || (!emitting && !this._auraAlive)) {
 				this._auraLoop = false;
-				if (this.renderer && !this.rolling) this.renderer.render(this.scene, this.camera);
+				if (this.renderer && !this.rolling && !(this._activePostLoops > 0)) this.renderer.render(this.scene, this.camera);
 				return;
 			}
-			this.renderer.render(this.scene, this.camera);
+			// When fadeDice/celebrateDice/fumbleDice is already rendering every frame, don't double-render the scene.
+			if (!(this._activePostLoops > 0)) this.renderer.render(this.scene, this.camera);
 			requestAnimationFrame(step);
 		};
 		requestAnimationFrame(step);
@@ -1572,6 +1680,9 @@ class DiceBox {
 
 	clearDice() {
 		this.running = false;
+		this._playback = null;
+		this._playbackStart = 0;
+		this._recorder = null;
 		if (this._hoverRing) this._hoverRing.visible = false;
 		// LoreWeaver fork: the dice's embers and smoke go with them.
 		Object.values(this.auraFields || {}).forEach((field) => field.clear());
@@ -1581,8 +1692,9 @@ class DiceBox {
 			this.removeDieLight(dice);
 			this.scene.remove(dice);
 			if (dice.body) this.world.removeBody(dice.body);
-			disposeDieMesh(dice);
+			disposeDieMesh(dice, this.programKeeper);
 		}
+		if (this.dieLightPool) this.dieLightPool.forEach((light) => { light.intensity = 0; });
 		this.renderer.render(this.scene, this.camera);
 
 		setTimeout(() => { this.renderer.render(this.scene, this.camera); }, 100);
@@ -1674,6 +1786,8 @@ class DiceBox {
 	}
 
 	async reroll(diceIdArray) {
+		this._playback = null;
+		this._playbackStart = 0;
 		this.rolling = true;
 		this.running = Date.now();
 		this.iteration = 0
@@ -1735,17 +1849,13 @@ class DiceBox {
 		this.steps = 0;
 		this.iteration = 0;
 
-		//reset dice vectors - for just the dice added
 		for (let i=0, len=addNotationVectors.vectors.length; i < len; ++i) {
 			const index = dieCount + i
 			if (!this.diceList[index]) continue;
-
-			//reset dice vectors
-			this.spawnDice(addNotationVectors.vectors[i], this.diceList[index]);
 			diceIdArray.push(index)
 		}
 
-		//check forced results, fix dice faces if necessary
+		//check forced results, fix dice faces if necessary (bodies stay at simulated resting pose for getLastValue)
 		if (addNotationVectors.result && addNotationVectors.result.length > 0) {
 			for (let i=0;i<addNotationVectors.result.length;i++) {
 				const index = dieCount + i
@@ -1755,6 +1865,11 @@ class DiceBox {
 				this.swapDiceFace(dicemesh, addNotationVectors.result[i]);
 			}
 		}
+
+		if (this._playback?.frames?.length) {
+			this.applyPlaybackFrame(this._playback.frames[0], this._playback.frames[0], 0, false);
+		}
+		this._playbackStart = 0;
 		
 
 
@@ -1795,7 +1910,7 @@ class DiceBox {
 				this.scene.remove(mesh);
 				mesh.storeRolledValue('remove');
 				results.push(this.getDiceResults(dieId))
-				disposeDieMesh(mesh);
+				disposeDieMesh(mesh, this.programKeeper);
 			})
 
 			this.renderer.render(this.scene, this.camera);
@@ -1828,14 +1943,7 @@ class DiceBox {
 		this.steps = 0;
 		this.iteration = 0;
 
-		for (let i=0, len=this.diceList.length; i < len; ++i) {
-			if (!this.diceList[i]) continue;
-			
-			//reset dice vectors
-			this.spawnDice(this.notationVectors.vectors[i],this.diceList[i]);
-		}
-		
-		//check forced results, fix dice faces if necessary
+		//check forced results, fix dice faces if necessary (bodies stay at simulated resting pose for getLastValue)
 		if (this.notationVectors.result && this.notationVectors.result.length > 0) {
 			for (let i=0;i<this.notationVectors.result.length;i++) {
 				let dicemesh = this.diceList[i];
@@ -1844,6 +1952,12 @@ class DiceBox {
 				this.swapDiceFace(dicemesh, this.notationVectors.result[i]);
 			}
 		}
+
+		// Position dice at frame 0 and play back the recorded physics trajectory smoothly.
+		if (this._playback?.frames?.length) {
+			this.applyPlaybackFrame(this._playback.frames[0], this._playback.frames[0], 0, false);
+		}
+		this._playbackStart = 0;
 
 		// animate the previously simulated roll
 		this.rolling = true;

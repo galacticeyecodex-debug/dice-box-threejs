@@ -5,8 +5,8 @@ import {DICE_GEOM} from "./const/dice"
 import { applyGlow, glowLevel } from "./glow.js"
 import { shadeOf } from "./lightGlow.js"
 import { applyDepthSettings } from "./materialDepth.js"
-import { BoundedTextureCache } from "./gpuCache.js"
-import { canvasFont, resolveEdgeColor } from "./faceStyle.js"
+import { BoundedTextureCache, addMergedGroup, faceTextureSize } from "./gpuCache.js"
+import { canvasFont, centerGlyphMetrics, faceLayoutFor, fitGlyphSize, resolveEdgeColor } from "./faceStyle.js"
 import { paintProceduralTexture, proceduralPatternOf } from "./proceduralTextures.js"
 import { applyDiceShader, resolveEffect, setEffectLabelMap } from "./diceShaders.js"
 import { d4LabelTables, paintFaceIcon, parseFaceIcon } from "./faceIcons.js"
@@ -116,8 +116,8 @@ class DiceFactory {
 				let face = this.geometry.groups[i];
 				if (face.materialIndex == 0) continue;
 
-				//Each group consists in 3 vertices of 3 elements (x, y, z) so the offset between faces in the Float32BufferAttribute is 9
-				let startVertex = i * 9;
+				// Read the flat face normal from this group's first vertex (works with merged triangle groups).
+				let startVertex = face.start * 3;
 				let normal = new THREE.Vector3(normals[startVertex], normals[startVertex + 1], normals[startVertex + 2]);
 				let angle = normal.clone().applyQuaternion(this.body.quaternion).angleTo(vector);
 				if (angle < closest_angle) {
@@ -226,6 +226,10 @@ class DiceFactory {
 			margin = this.baseScale * 2;
 		}
 		
+		const effectId = this.dice_material != 'none' ? resolveEffect(this.dice_effect, this.dice_material) : null;
+		const metalness = MATERIALTYPES[this.dice_material]?.metalness || 0;
+		const faceNeedsGlow = Boolean((this.label_glow > 0 && metalness > 0) || effectId === 'fire' || effectId === 'shadow');
+
 		for (var i = 0; i < labels.length; ++i) {
 			var mat;
 			if (this.dice_material != 'none') {
@@ -233,7 +237,6 @@ class DiceFactory {
 				// LoreWeaver fork: shine lets metal, glass and wood reflect the room DiceBox sets up. 0 is the original.
 				mat.envMapIntensity = (MATERIALTYPES[this.dice_material]?.envMapIntensity ?? 1) * (this.shine || 0);
 				// LoreWeaver fork: Fresnel gemstone & elemental surface shaders (src/diceShaders.js).
-				const effectId = resolveEffect(this.dice_effect, this.dice_material);
 				// The rim takes the set's own rim colour, or the effect's; not its light, which may be dark (shadow).
 				if (effectId) applyDiceShader(mat, effectId, this.shaderTime, this.colordata?.rim || null);
 			} else {
@@ -246,20 +249,22 @@ class DiceFactory {
 				let texture = {name:"none"};
 				const hasExplicitEdge = this.edge_color_rand && this.edge_color_rand !== this.dice_color_rand;
 				if(!hasExplicitEdge && this.dice_texture_rand.composite != "source-over") texture = this.dice_texture_rand;
+				const isPlainEdge = !texture.name || texture.name === 'none';
 
-				canvasTextures = this.createTextMaterial(diceobj, labels, i, size, margin, texture, this.label_color_rand, this.label_outline_rand, this.edge_color_rand, allowcache);
+				canvasTextures = this.createTextMaterial(diceobj, labels, i, size, margin, texture, this.label_color_rand, this.label_outline_rand, this.edge_color_rand, allowcache, { needBump: false, needGlow: false, isPlainEdge });
 				mat.map = canvasTextures.composite;
 				this.applyGlow(mat, canvasTextures);
 
 			} else {
-				canvasTextures = this.createTextMaterial(diceobj, labels, i, size, margin, this.dice_texture_rand, this.label_color_rand, this.label_outline_rand, this.dice_color_rand, allowcache);
+				const hasCustomNormal = Boolean(diceobj.shape != 'd4' && diceobj.normals[i]);
+				const needBump = Boolean(this.bumpMapping && !hasCustomNormal);
+				canvasTextures = this.createTextMaterial(diceobj, labels, i, size, margin, this.dice_texture_rand, this.label_color_rand, this.label_outline_rand, this.dice_color_rand, allowcache, { needBump, needGlow: faceNeedsGlow, isPlainEdge: false });
 				mat.map = canvasTextures.composite;
 				// LoreWeaver fork: a surface effect (fire, shadow) stays off the number (src/diceShaders.js).
 				setEffectLabelMap(mat, canvasTextures.glow);
 
 				// LoreWeaver fork: on metal, the numbers light themselves, scaled by how metallic it is, because
 				// a metal face reflects the room and darkens painted numbers. Plastic, glass and wood are unchanged.
-				const metalness = MATERIALTYPES[this.dice_material]?.metalness || 0;
 				if (this.label_glow > 0 && metalness > 0 && canvasTextures.glow && mat.emissive) {
 					mat.emissiveMap = canvasTextures.glow;
 					mat.emissive = new THREE.Color(0xffffff);
@@ -284,7 +289,7 @@ class DiceFactory {
 					if (canvasTextures.bump) {
 						mat.bumpMap = canvasTextures.bump;
 					}
-					if (diceobj.shape != 'd4' && diceobj.normals[i]) {
+					if (hasCustomNormal) {
 						mat.bumpMap = new THREE.Texture(diceobj.normals[i]);
 						mat.bumpScale = 4;
 						mat.bumpMap.needsUpdate = true;
@@ -300,7 +305,7 @@ class DiceFactory {
 		return materials;
 	}
 
-	createTextMaterial(diceobj, labels, index, size, margin, texture, forecolor, outlinecolor, backcolor, allowcache) {
+	createTextMaterial(diceobj, labels, index, size, margin, texture, forecolor, outlinecolor, backcolor, allowcache, { needBump = true, needGlow = true, isPlainEdge = false } = {}) {
 		if (labels[index] === undefined) return null;
 
 		texture = texture || this.dice_texture_rand;
@@ -322,9 +327,10 @@ class DiceFactory {
 
 		// an attempt at materials caching
 		const fontTag = this.label_font || diceobj.font || '';
-		let cachestring = diceobj.type + textCache + index + texture.name + forecolor + outlinecolor + backcolor + fontTag;
+		const flags = `${needBump ? 'B' : ''}${needGlow ? 'G' : ''}${isPlainEdge ? 'E' : ''}`;
+		let cachestring = diceobj.type + textCache + index + texture.name + forecolor + outlinecolor + backcolor + fontTag + flags;
 		if (diceobj.shape == 'd4') {
-			cachestring = diceobj.type + textCache + texture.name + forecolor + outlinecolor + backcolor + fontTag;
+			cachestring = diceobj.type + textCache + texture.name + forecolor + outlinecolor + backcolor + fontTag + flags;
 		}
 		const cached = allowcache ? this.materials_cache.get(cachestring) : null;
 		if (cached != null) {
@@ -332,41 +338,54 @@ class DiceFactory {
 			return cached;
 		}
 
+		const approx = diceobj.shape == 'd4' ? (size + margin) : (size + size * 2 * margin);
+		const ts = faceTextureSize(approx, { isPlainEdge, maxSize: this.maxTextureSize || 256 });
+		const outlineWidth = Math.max(1.5, Math.round((ts / 512) * 5 * 10) / 10);
+		const d4IconStroke = Math.max(1.5, Math.round((ts / 512) * 4 * 10) / 10);
+		const yOffset = ts * (10 / 512);
+
 		let canvas = document.createElement("canvas");
+		canvas.width = canvas.height = ts;
 		let context = canvas.getContext("2d", {alpha: true});
 
-		context.globalAlpha = 0;
-		context.clearRect(0, 0, canvas.width, canvas.height);
-
-		let canvasBump = document.createElement("canvas");
-		let contextBump = canvasBump.getContext("2d", {alpha: true});
-		contextBump.globalAlpha = 0;
-		contextBump.clearRect(0, 0, canvasBump.width, canvasBump.height);
-
-		// LoreWeaver fork: the numbers alone, lit on black, so metal dice can make their numbers glow.
-		let canvasGlow = document.createElement("canvas");
-		let contextGlow = canvasGlow.getContext("2d", {alpha: false});
-
-		let ts;
-
-		if (diceobj.shape == 'd4') {
-			ts = this.calc_texture_size(size + margin) * 4;
-		} else {
-			ts = this.calc_texture_size(size + size * 2 * margin) * 4;
+		let canvasBump = null;
+		let contextBump = null;
+		if (needBump) {
+			canvasBump = document.createElement("canvas");
+			canvasBump.width = canvasBump.height = ts;
+			contextBump = canvasBump.getContext("2d", {alpha: true});
 		}
 
-		canvas.width = canvas.height = ts;
-		canvasBump.width = canvasBump.height = ts;
-		canvasGlow.width = canvasGlow.height = ts;
-		contextGlow.fillStyle = "#000000";
-		contextGlow.fillRect(0, 0, ts, ts);
+		// LoreWeaver fork: the numbers alone, lit on black, only allocated when metal label_glow or a surface shader needs it.
+		let canvasGlow = null;
+		let contextGlow = null;
+		if (needGlow) {
+			canvasGlow = document.createElement("canvas");
+			canvasGlow.width = canvasGlow.height = ts;
+			contextGlow = canvasGlow.getContext("2d", {alpha: false});
+			contextGlow.fillStyle = "#000000";
+			contextGlow.fillRect(0, 0, ts, ts);
+		}
 
 		// create color
 		context.fillStyle = backcolor;
 		context.fillRect(0, 0, canvas.width, canvas.height);
 
-		contextBump.fillStyle = "#FFFFFF";
-		contextBump.fillRect(0, 0, canvasBump.width, canvasBump.height);
+		if (contextBump) {
+			contextBump.fillStyle = "#FFFFFF";
+			contextBump.fillRect(0, 0, canvasBump.width, canvasBump.height);
+		}
+
+		// Fast path for plain solid-colour bevel edges: no pattern, no text, 16x16 texture only.
+		if (isPlainEdge && index === 0) {
+			const compositetexture = new THREE.CanvasTexture(canvas);
+			const bundle = { composite: compositetexture, bump: null, glow: null };
+			if (allowcache) {
+				this.cache_misses++;
+				this.materials_cache.set(cachestring, bundle);
+			}
+			return bundle;
+		}
 
 		//create underlying texture
 		const procedural = proceduralPatternOf(texture);
@@ -378,7 +397,7 @@ class DiceFactory {
 			context.drawImage(texture.texture, 0, 0, canvas.width, canvas.height);
 			context.globalCompositeOperation = 'source-over';
 
-			if (texture.bump) {
+			if (contextBump && texture.bump) {
 				contextBump.globalCompositeOperation = 'source-over';
 				contextBump.drawImage(texture.bump, 0, 0, canvas.width, canvas.height);
 			}
@@ -391,11 +410,14 @@ class DiceFactory {
 		context.textAlign = "center";
 		context.textBaseline = "middle";
 
-		contextBump.textAlign = "center";
-		contextBump.textBaseline = "middle";
-
-		contextGlow.textAlign = "center";
-		contextGlow.textBaseline = "middle";
+		if (contextBump) {
+			contextBump.textAlign = "center";
+			contextBump.textBaseline = "middle";
+		}
+		if (contextGlow) {
+			contextGlow.textAlign = "center";
+			contextGlow.textBaseline = "middle";
+		}
 
 		if (diceobj.shape != 'd4') {
 
@@ -420,24 +442,27 @@ class DiceFactory {
 						degrees = rotateface.even
 					}
 				} 
-				// let degrees = ((rotateface.hasOwnProperty("all") ? rotateface.all : false) || (index > 0 && (index % 2) != 0)) ? rotateface.odd : rotateface.even;
 
 				if (degrees && degrees != 0) {
 
 					var hw = (canvas.width / 2);
 					var hh = (canvas.height / 2);
+					const rad = degrees * (Math.PI / 180);
 
 					context.translate(hw, hh);
-					context.rotate(degrees * (Math.PI / 180));
+					context.rotate(rad);
 					context.translate(-hw, -hh);
 
-					contextBump.translate(hw, hh);
-					contextBump.rotate(degrees * (Math.PI / 180));
-					contextBump.translate(-hw, -hh);
-
-					contextGlow.translate(hw, hh);
-					contextGlow.rotate(degrees * (Math.PI / 180));
-					contextGlow.translate(-hw, -hh);
+					if (contextBump) {
+						contextBump.translate(hw, hh);
+						contextBump.rotate(rad);
+						contextBump.translate(-hw, -hh);
+					}
+					if (contextGlow) {
+						contextGlow.translate(hw, hh);
+						contextGlow.rotate(rad);
+						contextGlow.translate(-hw, -hh);
+					}
 				}
 			}
 
@@ -453,77 +478,106 @@ class DiceFactory {
 				const cy = diceobj.shape === 'd10' ? canvas.height * 0.56 : canvas.height / 2;
 				const radius = canvas.width * (diceobj.shape === 'd10' ? 0.18 : 0.25);
 				const hasOutline = outlinecolor != 'none' && outlinecolor != backcolor;
-				paintFaceIcon(context, icon, { cx, cy, radius, fill: forecolor, stroke: hasOutline ? outlinecolor : null, lineWidth: 5 });
-				paintFaceIcon(contextBump, icon, { cx, cy, radius, fill: '#000000', stroke: hasOutline ? '#000000' : null, lineWidth: 5 });
-				paintFaceIcon(contextGlow, icon, { cx, cy, radius, fill: forecolor });
+				paintFaceIcon(context, icon, { cx, cy, radius, fill: forecolor, stroke: hasOutline ? outlinecolor : null, lineWidth: outlineWidth });
+				if (contextBump) paintFaceIcon(contextBump, icon, { cx, cy, radius, fill: '#000000', stroke: hasOutline ? '#000000' : null, lineWidth: outlineWidth });
+				if (contextGlow) paintFaceIcon(contextGlow, icon, { cx, cy, radius, fill: forecolor });
 
 			// text-only face
 			} else {
-
-				let fontsize = ts / (1 + 2 * margin);
-				let textstarty = (canvas.height / 2) + 10;
-				let textstartx = (canvas.width / 2);
-
-				if(diceobj.shape == 'd10') {
-					fontsize = fontsize*0.75;
-					textstarty = (textstarty*1.15) - 10;
-				} else if(diceobj.shape == 'd20') {
-					textstartx = textstartx*0.98;
-				}
-
-				const faceFont = canvasFont(this.label_font, diceobj.font, fontsize);
-				context.font = faceFont;
-				contextBump.font = faceFont;
-				contextGlow.font = faceFont;
-
-				let lineHeight = context.measureText("M").width * 1.4;
+				const layout = faceLayoutFor(diceobj.shape, ts);
+				let fontsize = (ts / (1 + 2 * margin)) * layout.baseScale;
 				let textlines = text.split("\n");
+				if (textlines.length > 1) fontsize = fontsize / textlines.length;
 
+				const setFonts = (pt) => {
+					const f = canvasFont(this.label_font, diceobj.font, pt);
+					context.font = f;
+					if (contextBump) contextBump.font = f;
+					if (contextGlow) contextGlow.font = f;
+				};
+				const setBaselines = (mode) => {
+					context.textBaseline = mode;
+					if (contextBump) contextBump.textBaseline = mode;
+					if (contextGlow) contextGlow.textBaseline = mode;
+				};
 
-				if (textlines.length > 1) {
-					fontsize = fontsize / textlines.length;
-					const smallFont = canvasFont(this.label_font, diceobj.font, fontsize);
-					context.font = smallFont;
-					contextBump.font = smallFont;
-					contextGlow.font = smallFont;
-					lineHeight = context.measureText("M").width * 1.2;
-					textstarty -= (lineHeight * textlines.length) / 2;
+				// Measure actual glyph ink bounds using alphabetic baseline, auto-fit into the face's safe interior box,
+				// and center the ink box cleanly for every font preset (serif, display, sans, mono, classic).
+				setBaselines("alphabetic");
+				setFonts(fontsize);
+				const probeLines = textlines.map((l) => l.trim() || l);
+				let maxW = 0, maxH = 0;
+				let useExact = true;
+				for (const line of probeLines) {
+					const placed = centerGlyphMetrics(context.measureText(line), layout.cx, layout.cy);
+					if (!placed.exact) useExact = false;
+					if (placed.width > maxW) maxW = placed.width;
+					if (placed.height > maxH) maxH = placed.height;
 				}
+				const fitted = fitGlyphSize(fontsize, maxW, maxH * textlines.length, layout.maxW, layout.maxH);
+				if (fitted !== fontsize) {
+					fontsize = fitted;
+					setFonts(fontsize);
+				}
+				if (!useExact) setBaselines("middle");
+
+				const lineGap = (maxH > 0 ? maxH * (fitted / fontsize || 1) : context.measureText("M").width) * 1.25;
+				const totalLinesH = lineGap * (textlines.length - 1);
+				const hasOutline = outlinecolor != 'none' && outlinecolor != backcolor;
 
 				for(let i = 0, l = textlines.length; i < l; i++){
 					let textline = textlines[i].trim();
+					const needsDot = textline == '6' || textline == '9';
+					const dotR = Math.max(2, ts * 0.017);
+					const dotGap = Math.max(3, ts * 0.028);
+					// Slightly lift 6/9 when drawing the orientation dot directly beneath it so the pair stays centered.
+					const targetY = layout.cy - totalLinesH / 2 + i * lineGap - (needsDot ? dotR * 0.85 : 0);
+					const placed = centerGlyphMetrics(context.measureText(textlines[i]), layout.cx, targetY);
 
-					// attempt to outline the text with a meaningful color
-					if (outlinecolor != 'none' && outlinecolor != backcolor) {
+					if (hasOutline) {
 						context.strokeStyle = outlinecolor;
-						context.lineWidth = 5;
-						context.strokeText(textlines[i], textstartx, textstarty);
+						context.lineWidth = outlineWidth;
+						context.strokeText(textlines[i], placed.x, placed.y);
 
-						contextBump.strokeStyle = "#000000";
-						contextBump.lineWidth = 5;
-						contextBump.strokeText(textlines[i], textstartx, textstarty);
-
-						if (textline == '6' || textline == '9') {
-							context.strokeText('  .', textstartx, textstarty);
-							contextBump.strokeText('  .', textstartx, textstarty);
+						if (contextBump) {
+							contextBump.strokeStyle = "#000000";
+							contextBump.lineWidth = outlineWidth;
+							contextBump.strokeText(textlines[i], placed.x, placed.y);
 						}
 					}
 
 					context.fillStyle = forecolor;
-					context.fillText(textlines[i], textstartx, textstarty);
+					context.fillText(textlines[i], placed.x, placed.y);
 
-					contextBump.fillStyle = "#000000";
-					contextBump.fillText(textlines[i], textstartx, textstarty);
-
-					contextGlow.fillStyle = forecolor;
-					contextGlow.fillText(textlines[i], textstartx, textstarty);
-
-					if (textline == '6' || textline == '9') {
-						context.fillText('  .', textstartx, textstarty);
-						contextBump.fillText('  .', textstartx, textstarty);
-						contextGlow.fillText('  .', textstartx, textstarty);
+					if (contextBump) {
+						contextBump.fillStyle = "#000000";
+						contextBump.fillText(textlines[i], placed.x, placed.y);
 					}
-					textstarty += (lineHeight * 1.5);
+					if (contextGlow) {
+						contextGlow.fillStyle = forecolor;
+						contextGlow.fillText(textlines[i], placed.x, placed.y);
+					}
+
+					// Crisp orientation dot centered directly below 6 and 9 (works identically across proportional and monospace fonts).
+					if (needsDot) {
+						const dotX = layout.cx;
+						const dotY = targetY + (placed.height > 0 ? placed.height / 2 : fontsize * 0.45) + dotGap;
+						const drawDot = (ctx, fill, stroke) => {
+							if (!ctx) return;
+							ctx.beginPath();
+							ctx.arc(dotX, dotY, dotR, 0, Math.PI * 2);
+							if (stroke) {
+								ctx.strokeStyle = stroke;
+								ctx.lineWidth = Math.max(1.2, outlineWidth * 0.75);
+								ctx.stroke();
+							}
+							ctx.fillStyle = fill;
+							ctx.fill();
+						};
+						drawDot(context, forecolor, hasOutline ? outlinecolor : null);
+						drawDot(contextBump, "#000000", hasOutline ? "#000000" : null);
+						drawDot(contextGlow, forecolor, null);
+					}
 				}
 			}
 		} else {
@@ -531,12 +585,16 @@ class DiceFactory {
 			var hw = (canvas.width / 2);
 			var hh = (canvas.height / 2);
 
-			const d4Font = canvasFont(this.label_font, diceobj.font, ts / 128 * 24);
+			const d4Font = canvasFont(this.label_font, diceobj.font, ts / 128 * 21);
 			context.font = d4Font;
-			contextBump.font = d4Font;
-			contextGlow.font = d4Font;
+			if (contextBump) contextBump.font = d4Font;
+			if (contextGlow) contextGlow.font = d4Font;
+			context.textBaseline = "alphabetic";
+			if (contextBump) contextBump.textBaseline = "alphabetic";
+			if (contextGlow) contextGlow.textBaseline = "alphabetic";
 
-			//draw the numbers
+			//draw the numbers (pulled slightly inward from the sharp apex so bold fonts never clip bevels)
+			const d4LabelY = hh - ts * 0.265;
 			for (let i=0; i<text.length; i++) {
 				//custom texture face
 				if (text[i] instanceof HTMLImageElement) {
@@ -545,32 +603,42 @@ class DiceFactory {
 				} else if (parseFaceIcon(text[i])) {
 					const icon = parseFaceIcon(text[i]);
 					const hasOutline = outlinecolor != 'none' && outlinecolor != backcolor;
-					const iconY = hh - ts * 0.3;
-					const iconR = ts * 0.1;
-					paintFaceIcon(context, icon, { cx: hw, cy: iconY, radius: iconR, fill: forecolor, stroke: hasOutline ? outlinecolor : null, lineWidth: 4 });
-					paintFaceIcon(contextBump, icon, { cx: hw, cy: iconY, radius: iconR, fill: '#000000', stroke: hasOutline ? '#000000' : null, lineWidth: 4 });
-					paintFaceIcon(contextGlow, icon, { cx: hw, cy: iconY, radius: iconR, fill: forecolor });
+					const iconR = ts * 0.095;
+					paintFaceIcon(context, icon, { cx: hw, cy: d4LabelY, radius: iconR, fill: forecolor, stroke: hasOutline ? outlinecolor : null, lineWidth: d4IconStroke });
+					if (contextBump) paintFaceIcon(contextBump, icon, { cx: hw, cy: d4LabelY, radius: iconR, fill: '#000000', stroke: hasOutline ? '#000000' : null, lineWidth: d4IconStroke });
+					if (contextGlow) paintFaceIcon(contextGlow, icon, { cx: hw, cy: d4LabelY, radius: iconR, fill: forecolor });
 				} else {
+					const placed = centerGlyphMetrics(context.measureText(text[i]), hw, d4LabelY);
+					if (!placed.exact) {
+						context.textBaseline = "middle";
+						if (contextBump) contextBump.textBaseline = "middle";
+						if (contextGlow) contextGlow.textBaseline = "middle";
+					}
 					// attempt to outline the text with a meaningful color
 					if (outlinecolor != 'none' && outlinecolor != backcolor) {
 						context.strokeStyle = outlinecolor;
-						context.lineWidth = 5;
-						context.strokeText(text[i], hw, hh - ts * 0.3);
+						context.lineWidth = outlineWidth;
+						context.strokeText(text[i], placed.x, placed.y);
 
-						contextBump.strokeStyle = "#000000";
-						contextBump.lineWidth = 5;
-						contextBump.strokeText(text[i], hw, hh - ts * 0.3);
+						if (contextBump) {
+							contextBump.strokeStyle = "#000000";
+							contextBump.lineWidth = outlineWidth;
+							contextBump.strokeText(text[i], placed.x, placed.y);
+						}
 					}
 
 					//draw label in top middle section
 					context.fillStyle = forecolor;
-					context.fillText(text[i], hw, hh - ts * 0.3);
+					context.fillText(text[i], placed.x, placed.y);
 
-					contextBump.fillStyle = "#000000";
-					contextBump.fillText(text[i], hw, hh - ts * 0.3);
-
-					contextGlow.fillStyle = forecolor;
-					contextGlow.fillText(text[i], hw, hh - ts * 0.3);
+					if (contextBump) {
+						contextBump.fillStyle = "#000000";
+						contextBump.fillText(text[i], placed.x, placed.y);
+					}
+					if (contextGlow) {
+						contextGlow.fillStyle = forecolor;
+						contextGlow.fillText(text[i], placed.x, placed.y);
+					}
 				}
 
 				//rotate 1/3 for next label
@@ -578,13 +646,16 @@ class DiceFactory {
 				context.rotate(Math.PI * 2 / 3);
 				context.translate(-hw, -hh);
 
-				contextBump.translate(hw, hh);
-				contextBump.rotate(Math.PI * 2 / 3);
-				contextBump.translate(-hw, -hh);
-
-				contextGlow.translate(hw, hh);
-				contextGlow.rotate(Math.PI * 2 / 3);
-				contextGlow.translate(-hw, -hh);
+				if (contextBump) {
+					contextBump.translate(hw, hh);
+					contextBump.rotate(Math.PI * 2 / 3);
+					contextBump.translate(-hw, -hh);
+				}
+				if (contextGlow) {
+					contextGlow.translate(hw, hh);
+					contextGlow.rotate(Math.PI * 2 / 3);
+					contextGlow.translate(-hw, -hh);
+				}
 			}
 
 			//debug side numbering
@@ -593,14 +664,8 @@ class DiceFactory {
 		}
 
 		var compositetexture = new THREE.CanvasTexture(canvas);
-		var bumpMap;
-		if (!isTexture) {
-			bumpMap = new THREE.CanvasTexture(canvasBump);
-		} else {
-			bumpMap = null;
-		}
-
-		var glowMap = new THREE.CanvasTexture(canvasGlow);
+		var bumpMap = (!isTexture && canvasBump) ? new THREE.CanvasTexture(canvasBump) : null;
+		var glowMap = canvasGlow ? new THREE.CanvasTexture(canvasGlow) : null;
 
 		if (allowcache) {
 			// cache new texture
@@ -848,12 +913,11 @@ class DiceFactory {
 
 				}
 
-				//Set Group for face materials.
+				// LoreWeaver fork: merge consecutive triangles sharing a materialIndex into one group,
+				// cutting per-die WebGL draw calls by ~6x-8x (all bevel/corner triangles become 1 draw call).
 				let numOfVertices = (fl - 2) * 3;
-				for (let i = 0; i < numOfVertices/3; i++) {
-					geom.addGroup(faceFirstVertexIndex, 3, materialIndex);
-					faceFirstVertexIndex += 3;
-				}
+				addMergedGroup(geom, faceFirstVertexIndex, numOfVertices, materialIndex);
+				faceFirstVertexIndex += numOfVertices;
 
 		}
 
@@ -923,12 +987,10 @@ class DiceFactory {
 					uvs.push(0.5, v2);
 				}
 			}
-			//Set Group for face materials.
+			// LoreWeaver fork: merge consecutive triangles sharing a materialIndex into one group.
 			let numOfVertices = (fl - 2) * 3;
-			for (let i = 0; i < numOfVertices/3; i++) {
-				geom.addGroup(faceFirstVertexIndex, 3, materialIndex);
-				faceFirstVertexIndex += 3;
-			}
+			addMergedGroup(geom, faceFirstVertexIndex, numOfVertices, materialIndex);
+			faceFirstVertexIndex += numOfVertices;
 		}
 
 

@@ -2,7 +2,7 @@
 // LoreWeaver fork: the light a glowing die casts on the table: a pool under it, a halo, and a real light.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { flickerAt, glowFrame, lightOf, shadeOf } from '../src/lightGlow.js'
+import { MAX_DIE_LIGHTS, flickerAt, glowFrame, lightOf, packDieLights, shadeOf } from '../src/lightGlow.js'
 
 test('a set casts light in its own colour, or its light colour when it names one', () => {
 	assert.deepEqual(lightOf({ glow: 0.3, background: '#fff8e6' }), { level: 0.3, color: '#fff8e6', reach: 1 })
@@ -56,4 +56,22 @@ test('a dark light is a shade: a pool of darkness that keeps close to the die', 
 	const far = glowFrame({ level: 0.3, radius: 10, height: 0 })
 	assert.ok(near.pool.scale < far.pool.scale)
 	assert.ok(near.halo.scale < far.halo.scale)
+})
+
+test('packDieLights skips shades, keeps 1..MAX_DIE_LIGHTS exact, and clusters larger throws into a fixed pool', () => {
+	assert.deepEqual(packDieLights([{ x: 0, y: 0, z: 10, color: '#0b0614', intensity: 0.8, distance: 120, shade: true }]), [])
+	const two = [
+		{ x: -10, y: 0, z: 10, color: '#ff7a1a', intensity: 0.5, distance: 120, shade: false },
+		{ x: 10, y: 0, z: 10, color: '#ff7a1a', intensity: 0.5, distance: 120, shade: false },
+	]
+	assert.equal(packDieLights(two).length, 2)
+	assert.equal(packDieLights(two)[0].x, -10)
+	const eight = Array.from({ length: 8 }, (_, i) => ({
+		x: (i - 3.5) * 20, y: 0, z: 10, color: '#ff7a1a', intensity: 0.5, distance: 120, shade: false,
+	}))
+	const packed = packDieLights(eight)
+	assert.equal(packed.length, MAX_DIE_LIGHTS)
+	assert.ok(packed[0].x < 0 && packed[1].x > 0)
+	assert.ok(packed[0].intensity > 0.5 && packed[0].intensity <= 0.71)
+	assert.ok(packed[0].distance > 120)
 })
