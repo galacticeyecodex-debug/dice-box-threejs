@@ -13,6 +13,7 @@ import { glowFrame, lightOf } from "./lightGlow.js"
 import { disposeDieMesh } from "./gpuCache.js"
 import { responsiveBaseScale, scaleChanged } from "./viewportScale.js"
 import { dataUrlToArrayBuffer, impactAudioParams, playImpactClip, soundMaterialOf } from "./diceAudio.js"
+import { burstProfile, celebrationMaterials, fumbleWobble } from "./celebration.js"
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js"
 
 /** LoreWeaver fork: how many sound files each dice material and table surface has. */
@@ -404,20 +405,24 @@ class DiceBox {
 
 	/**
 	 * LoreWeaver fork: celebrates dice, such as a die that landed on a critical face. Each die pops, pulses with a
-	 * warm glow, and throws off a burst of sparks; afterwards it keeps a soft glow until the dice are cleared.
+	 * warm glow (optionally spotlit on the winning top face only), and throws off an elemental burst of sparks;
+	 * afterwards it keeps a soft glow until the dice are cleared.
 	 * @param {Array<number>} ids - The dice to celebrate, by their place in the throw (0 is the first die).
 	 * @param {object} [options] - How it looks.
-	 * @param {number|string} [options.color=0xffc94a] - The glow and spark colour.
+	 * @param {number|string|null} [options.color=null] - Optional override colour (defaults to style's colour).
+	 * @param {string} [options.style='gold'] - Burst style: 'gold', 'fire', 'frost', 'storm', 'arcane', or 'shadow'.
+	 * @param {boolean} [options.faceOnly=true] - When true, spotlights only the upward-facing landed face.
 	 * @param {number} [options.duration=1800] - How long the burst lasts, in milliseconds.
 	 * @param {number} [options.sparks=120] - Sparks per die.
 	 * @returns {Promise<void>} Resolves when the burst has finished.
 	 */
-	celebrateDice(ids = [], { color = 0xffc94a, duration = 1800, sparks = 120 } = {}){
+	celebrateDice(ids = [], { color = null, style = 'gold', faceOnly = true, duration = 1800, sparks = 120 } = {}){
 		const meshes = ids.map((id) => this.diceList[id]).filter(Boolean)
 		if (!meshes.length || !this.renderer || typeof requestAnimationFrame !== 'function') return Promise.resolve()
-		const glow = new THREE.Color(color)
-		const materials = meshes.flatMap((mesh) => (Array.isArray(mesh.material) ? mesh.material : [mesh.material])).filter((material) => material.emissive)
-		// While it bursts the whole die glows; a die whose numbers light themselves (label_glow) gets that back after.
+		const profile = burstProfile(style, color)
+		const glow = new THREE.Color(profile.color)
+		const materials = meshes.flatMap((mesh) => celebrationMaterials(mesh, faceOnly))
+		// While it bursts the chosen face(s) glow; a die whose numbers light themselves (label_glow) gets that back after.
 		const before = materials.map((material) => ({ map: material.emissiveMap, intensity: material.emissiveIntensity }))
 		materials.forEach((material) => {
 			material.emissive = glow.clone()
@@ -431,8 +436,8 @@ class DiceBox {
 			const velocities = []
 			for (let i = 0; i < sparks; i++) {
 				const angle = Math.random() * Math.PI * 2
-				const speed = reach * (0.45 + Math.random() * 0.75)
-				velocities.push(new THREE.Vector3(Math.cos(angle) * speed, Math.sin(angle) * speed, reach * (0.4 + Math.random() * 0.9)))
+				const speed = reach * profile.spread * (0.45 + Math.random() * 0.75)
+				velocities.push(new THREE.Vector3(Math.cos(angle) * speed, Math.sin(angle) * speed, reach * profile.lift * (0.4 + Math.random() * 0.9)))
 				positions.set([mesh.position.x, mesh.position.y, mesh.position.z], i * 3)
 			}
 			const geometry = new THREE.BufferGeometry()
@@ -449,15 +454,20 @@ class DiceBox {
 				const seconds = (share * duration) / 1000
 				// Three quick pulses that settle into a soft steady glow.
 				const pulse = (0.5 + 0.5 * Math.cos(share * Math.PI * 6)) * (1 - share)
-				materials.forEach((material) => { material.emissiveIntensity = 0.25 + 0.75 * pulse })
+				materials.forEach((material) => { material.emissiveIntensity = 0.28 + 0.72 * pulse })
 				bursts.forEach(({ mesh, points, positions, velocities, origin, scale }) => {
 					// A pop: the die swells by a quarter and settles back in the first fifth of the burst.
 					const pop = share < 0.2 ? Math.sin((share / 0.2) * Math.PI) * 0.25 : 0
 					mesh.scale.set(scale.x * (1 + pop), scale.y * (1 + pop), scale.z * (1 + pop))
+					const swirlAngle = profile.swirl * seconds
+					const cosS = swirlAngle ? Math.cos(swirlAngle) : 1
+					const sinS = swirlAngle ? Math.sin(swirlAngle) : 0
 					velocities.forEach((velocity, i) => {
-						positions[i * 3] = origin.x + velocity.x * seconds
-						positions[i * 3 + 1] = origin.y + velocity.y * seconds
-						positions[i * 3 + 2] = Math.max(0, origin.z + velocity.z * seconds - reach * 1.6 * seconds * seconds)
+						const vx = velocity.x * seconds
+						const vy = velocity.y * seconds
+						positions[i * 3] = origin.x + (vx * cosS - vy * sinS)
+						positions[i * 3 + 1] = origin.y + (vx * sinS + vy * cosS)
+						positions[i * 3 + 2] = Math.max(0, origin.z + velocity.z * seconds - reach * profile.gravity * seconds * seconds)
 					})
 					points.geometry.attributes.position.needsUpdate = true
 					points.material.opacity = 1 - share * share
@@ -470,15 +480,90 @@ class DiceBox {
 					points.geometry.dispose()
 					points.material.dispose()
 				})
-				// Afterwards: a soft gold glow, or, on a die whose numbers light themselves, gold numbers.
+				// Afterwards: a soft glow on the winning face, or glowing numbers on metallic dice.
 				materials.forEach((material, i) => {
 					if (before[i].map) {
 						material.emissiveMap = before[i].map
-						material.emissiveIntensity = Math.max(before[i].intensity, 0.6)
+						material.emissiveIntensity = Math.max(before[i].intensity, 0.7)
 						material.needsUpdate = true
 					} else {
-						material.emissiveIntensity = 0.25
+						material.emissiveIntensity = 0.3
 					}
+				})
+				this.renderer.render(this.scene, this.camera)
+				resolve()
+			}
+			requestAnimationFrame(step)
+		})
+	}
+
+	/**
+	 * LoreWeaver fork: subtle dramatic fail beat for dice on a face the narrator named in fails_on.
+	 * Each die gives a heavy damped wobble, briefly dims, and releases a soft dark puff of smoke.
+	 * @param {Array<number>} ids - Dice indices in this.diceList.
+	 * @param {object} [options]
+	 * @param {number} [options.duration=950] - Milliseconds.
+	 * @param {number|string} [options.color=0x5c5468] - Smoke puff colour.
+	 * @param {number} [options.puffs=36] - Smoke particle count per die.
+	 * @returns {Promise<void>}
+	 */
+	fumbleDice(ids = [], { duration = 950, color = 0x5c5468, puffs = 36 } = {}){
+		const meshes = ids.map((id) => this.diceList[id]).filter(Boolean)
+		if (!meshes.length || !this.renderer || typeof requestAnimationFrame !== 'function') return Promise.resolve()
+		const tint = new THREE.Color(color)
+		const smokeMap = this.sparkTexture()
+		const reach = this.display.scale * 2.6
+		const entries = meshes.map((mesh) => {
+			const positions = new Float32Array(puffs * 3)
+			const velocities = []
+			for (let i = 0; i < puffs; i++) {
+				const angle = Math.random() * Math.PI * 2
+				const speed = reach * (0.25 + Math.random() * 0.55)
+				velocities.push(new THREE.Vector3(Math.cos(angle) * speed, Math.sin(angle) * speed, reach * (0.35 + Math.random() * 0.6)))
+				positions.set([mesh.position.x, mesh.position.y, mesh.position.z], i * 3)
+			}
+			const geometry = new THREE.BufferGeometry()
+			geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+			const material = new THREE.PointsMaterial({ color: tint, map: smokeMap, size: this.display.scale * 2.2, transparent: true, opacity: 0.55, depthTest: false, depthWrite: false })
+			const points = new THREE.Points(geometry, material)
+			this.scene.add(points)
+			const mats = (Array.isArray(mesh.material) ? mesh.material : [mesh.material]).filter(Boolean)
+			const baseColors = mats.map((m) => (m.color ? m.color.clone() : null))
+			return { mesh, points, positions, velocities, origin: mesh.position.clone(), baseQuat: mesh.quaternion.clone(), mats, baseColors }
+		})
+		const tiltAxis = new THREE.Vector3(1, 0.35, 0).normalize()
+		const wobbleQuat = new THREE.Quaternion()
+		return new Promise((resolve) => {
+			const start = performance.now()
+			const step = (now) => {
+				const share = Math.min(1, (now - start) / duration)
+				const seconds = (share * duration) / 1000
+				const angle = fumbleWobble(share)
+				const dim = 1 - 0.25 * Math.sin(share * Math.PI)
+				wobbleQuat.setFromAxisAngle(tiltAxis, angle)
+				entries.forEach(({ mesh, points, positions, velocities, origin, baseQuat, mats, baseColors }) => {
+					mesh.quaternion.copy(baseQuat).premultiply(wobbleQuat)
+					mats.forEach((m, i) => {
+						if (m.color && baseColors[i]) m.color.copy(baseColors[i]).multiplyScalar(dim)
+					})
+					velocities.forEach((v, i) => {
+						positions[i * 3] = origin.x + v.x * seconds
+						positions[i * 3 + 1] = origin.y + v.y * seconds
+						positions[i * 3 + 2] = origin.z + v.z * seconds
+					})
+					points.geometry.attributes.position.needsUpdate = true
+					points.material.opacity = 0.55 * (1 - share)
+				})
+				this.renderer.render(this.scene, this.camera)
+				if (share < 1) { requestAnimationFrame(step); return }
+				entries.forEach(({ mesh, points, baseQuat, mats, baseColors }) => {
+					mesh.quaternion.copy(baseQuat)
+					mats.forEach((m, i) => {
+						if (m.color && baseColors[i]) m.color.copy(baseColors[i])
+					})
+					this.scene.remove(points)
+					points.geometry.dispose()
+					points.material.dispose()
 				})
 				this.renderer.render(this.scene, this.camera)
 				resolve()
