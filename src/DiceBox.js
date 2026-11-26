@@ -14,6 +14,7 @@ import { disposeDieMesh } from "./gpuCache.js"
 import { responsiveBaseScale, scaleChanged } from "./viewportScale.js"
 import { dataUrlToArrayBuffer, impactAudioParams, playImpactClip, soundMaterialOf } from "./diceAudio.js"
 import { burstProfile, celebrationMaterials, fumbleWobble } from "./celebration.js"
+import { easeInOut, lineupPositions } from "./diceArrange.js"
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js"
 
 /** LoreWeaver fork: how many sound files each dice material and table surface has. */
@@ -390,6 +391,90 @@ class DiceBox {
 		}
 		// Sounds load the first time they're switched on, and again for dice of a new material.
 		if (this.sounds && (themeChanged || 'sounds' in options) && this.initialized) await this.loadSounds()
+	}
+
+	/**
+	 * LoreWeaver fork: gently illuminates specific dice (such as hits in a dice pool) on their upward-facing
+	 * top face without a full burst.
+	 * @param {Array<number>} ids - Dice indices in this.diceList.
+	 * @param {object} [options]
+	 * @param {number|string} [options.color=0xffe07a] - Highlight colour.
+	 * @param {number} [options.intensity=0.45] - Target emissive intensity.
+	 * @param {number} [options.duration=420] - Milliseconds to ease in.
+	 * @returns {Promise<void>}
+	 */
+	highlightDice(ids = [], { color = 0xffe07a, intensity = 0.45, duration = 420 } = {}){
+		const meshes = ids.map((id) => this.diceList[id]).filter(Boolean)
+		if (!meshes.length || !this.renderer) return Promise.resolve()
+		const tint = new THREE.Color(color)
+		const materials = meshes.flatMap((mesh) => celebrationMaterials(mesh, true))
+		const from = materials.map((m) => m.emissiveIntensity || 0)
+		materials.forEach((m) => { m.emissive = tint.clone() })
+		const paint = (share) => {
+			const e = easeInOut(share)
+			materials.forEach((m, i) => { m.emissiveIntensity = from[i] + (intensity - from[i]) * e })
+			this.renderer.render(this.scene, this.camera)
+		}
+		if (!(duration > 0) || typeof requestAnimationFrame !== 'function') {
+			paint(1)
+			return Promise.resolve()
+		}
+		return new Promise((resolve) => {
+			const start = performance.now()
+			const step = (now) => {
+				const share = Math.min(1, (now - start) / duration)
+				paint(share)
+				if (share >= 1) { resolve(); return }
+				requestAnimationFrame(step)
+			}
+			requestAnimationFrame(step)
+		})
+	}
+
+	/**
+	 * LoreWeaver fork: smoothly glides chosen dice into a tidy centered row after landing so faces are
+	 * easy to read on narrow phone viewports and large pools.
+	 * @param {Array<number>} [ids] - Dice indices to arrange (defaults to all dice on the table).
+	 * @param {object} [options]
+	 * @param {number} [options.duration=420] - Glide duration in milliseconds.
+	 * @returns {Promise<void>}
+	 */
+	arrangeDice(ids = null, { duration = 420 } = {}){
+		const indices = Array.isArray(ids) ? ids : this.diceList.map((_, i) => i)
+		const meshes = indices.map((id) => this.diceList[id]).filter(Boolean)
+		if (meshes.length < 2 || !this.renderer) return Promise.resolve()
+		const maxRadius = Math.max(...meshes.map((m) => {
+			if (!m.geometry.boundingSphere) m.geometry.computeBoundingSphere()
+			return m.geometry.boundingSphere?.radius || this.DiceFactory.baseScale
+		}))
+		const spacing = maxRadius * 2.45
+		const maxWidth = Math.max(spacing, (this.display.containerWidth || 400) * 1.45)
+		const targets = lineupPositions(meshes.length, { spacing, maxWidth, rowGap: spacing })
+		const starts = meshes.map((m) => ({ x: m.position.x, y: m.position.y, z: m.position.z }))
+		const paint = (share) => {
+			const e = easeInOut(share)
+			meshes.forEach((mesh, i) => {
+				const x = starts[i].x + (targets[i].x - starts[i].x) * e
+				const y = starts[i].y + (targets[i].y - starts[i].y) * e
+				mesh.position.set(x, y, starts[i].z)
+				if (mesh.body) mesh.body.position.set(x, y, starts[i].z)
+			})
+			this.renderer.render(this.scene, this.camera)
+		}
+		if (!(duration > 0) || typeof requestAnimationFrame !== 'function') {
+			paint(1)
+			return Promise.resolve()
+		}
+		return new Promise((resolve) => {
+			const start = performance.now()
+			const step = (now) => {
+				const share = Math.min(1, (now - start) / duration)
+				paint(share)
+				if (share >= 1) { resolve(); return }
+				requestAnimationFrame(step)
+			}
+			requestAnimationFrame(step)
+		})
 	}
 
 	/**
