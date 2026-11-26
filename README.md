@@ -32,6 +32,7 @@ This fork is used by LoreWeaver Table. It changes the library in these ways (eac
 | Gemstone Fresnel & elemental shaders (`diceShaders.js`) | `onBeforeCompile` Fresnel rim on glass/gem dice and animated elemental surface shaders (`fire`, `frost`, `storm`, `arcane`) |
 | Spotlit winning face, elemental bursts & `fumbleDice` (`celebration.js`) | `celebrateDice` spotlights only the landed face by default and supports elemental burst styles (`gold`, `fire`, `frost`, `storm`, `arcane`, `shadow`); `fumbleDice` gives a restrained wobble and smoke puff |
 | Pool-hit illumination & post-roll line-up (`diceArrange.js`) | `highlightDice(ids)` softly lights winning pool dice; `arrangeDice(ids)` glides kept dice into a centered readable row on narrow screens |
+| Tap/hover 3D die raycasting (`dicePick.js`) | `pickDie(clientX, clientY)` raycasts pointer clicks onto resting 3D dice; `setHoverDie(id)` draws a selection ring under the hovered die |
 | `dist` is committed | The app installs the fork straight from GitHub |
 
 Tests: `npm test` (Node's own test runner).

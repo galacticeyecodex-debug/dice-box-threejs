@@ -15,6 +15,7 @@ import { responsiveBaseScale, scaleChanged } from "./viewportScale.js"
 import { dataUrlToArrayBuffer, impactAudioParams, playImpactClip, soundMaterialOf } from "./diceAudio.js"
 import { burstProfile, celebrationMaterials, fumbleWobble } from "./celebration.js"
 import { easeInOut, lineupPositions } from "./diceArrange.js"
+import { clientToNdc } from "./dicePick.js"
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js"
 
 /** LoreWeaver fork: how many sound files each dice material and table surface has. */
@@ -475,6 +476,52 @@ class DiceBox {
 			}
 			requestAnimationFrame(step)
 		})
+	}
+
+	/**
+	 * LoreWeaver fork: raycasts pointer coordinates against the dice on the table.
+	 * @param {number} clientX - Pointer X in viewport pixels.
+	 * @param {number} clientY - Pointer Y in viewport pixels.
+	 * @returns {number} Index in this.diceList, or -1 when no die is under the pointer.
+	 */
+	pickDie(clientX, clientY){
+		if (!this.renderer?.domElement || !this.camera || !this.diceList.length) return -1
+		const ndc = clientToNdc(clientX, clientY, this.renderer.domElement.getBoundingClientRect())
+		if (!ndc) return -1
+		this._raycaster ||= new THREE.Raycaster()
+		this._raycaster.setFromCamera(new THREE.Vector2(ndc.x, ndc.y), this.camera)
+		const hits = this._raycaster.intersectObjects(this.diceList, false)
+		if (!hits.length) return -1
+		return this.diceList.indexOf(hits[0].object)
+	}
+
+	/**
+	 * LoreWeaver fork: shows a soft selection ring under a hovered/selectable 3D die on the table.
+	 * Pass null or -1 to clear the ring.
+	 * @param {number|null} id - Die index in this.diceList.
+	 * @param {object} [options]
+	 * @param {number|string} [options.color=0xffd56b] - Ring colour.
+	 */
+	setHoverDie(id, { color = 0xffd56b } = {}){
+		const mesh = typeof id === 'number' && id >= 0 ? this.diceList[id] : null
+		if (!mesh || !this.scene) {
+			if (this._hoverRing) this._hoverRing.visible = false
+			if (this.renderer && this.camera) this.renderer.render(this.scene, this.camera)
+			return
+		}
+		if (!mesh.geometry.boundingSphere) mesh.geometry.computeBoundingSphere()
+		const radius = mesh.geometry.boundingSphere?.radius || this.DiceFactory.baseScale
+		if (!this._hoverRing) {
+			const geom = new THREE.RingGeometry(0.95, 1.28, 36)
+			const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.78, side: THREE.DoubleSide, depthWrite: false })
+			this._hoverRing = new THREE.Mesh(geom, mat)
+			this.scene.add(this._hoverRing)
+		}
+		this._hoverRing.material.color.set(color)
+		this._hoverRing.position.set(mesh.position.x, mesh.position.y, 1.2)
+		this._hoverRing.scale.set(radius, radius, 1)
+		this._hoverRing.visible = true
+		if (this.renderer && this.camera) this.renderer.render(this.scene, this.camera)
 	}
 
 	/**
@@ -1431,6 +1478,7 @@ class DiceBox {
 
 	clearDice() {
 		this.running = false;
+		if (this._hoverRing) this._hoverRing.visible = false;
 		let dice;
 		while (dice = this.diceList.pop()) {
 			this.removeDieLight(dice);
