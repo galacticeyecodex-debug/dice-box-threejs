@@ -639,29 +639,35 @@ class DiceBox {
 	 * @param {number} [options.puffs=36] - Smoke particle count per die.
 	 * @returns {Promise<void>}
 	 */
-	fumbleDice(ids = [], { duration = 950, color = 0x5c5468, puffs = 36 } = {}){
+	fumbleDice(ids = [], { duration = 1050, color = 0xb82924, puffs = 48 } = {}){
 		const meshes = ids.map((id) => this.diceList[id]).filter(Boolean)
 		if (!meshes.length || !this.renderer || typeof requestAnimationFrame !== 'function') return Promise.resolve()
 		const tint = new THREE.Color(color)
 		const smokeMap = this.sparkTexture()
-		const reach = this.display.scale * 2.6
+		const reach = this.display.scale * 3.0
 		const entries = meshes.map((mesh) => {
 			const positions = new Float32Array(puffs * 3)
 			const velocities = []
 			for (let i = 0; i < puffs; i++) {
 				const angle = Math.random() * Math.PI * 2
-				const speed = reach * (0.25 + Math.random() * 0.55)
-				velocities.push(new THREE.Vector3(Math.cos(angle) * speed, Math.sin(angle) * speed, reach * (0.35 + Math.random() * 0.6)))
+				const speed = reach * (0.3 + Math.random() * 0.65)
+				velocities.push(new THREE.Vector3(Math.cos(angle) * speed, Math.sin(angle) * speed, reach * (0.45 + Math.random() * 0.7)))
 				positions.set([mesh.position.x, mesh.position.y, mesh.position.z], i * 3)
 			}
 			const geometry = new THREE.BufferGeometry()
 			geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
-			const material = new THREE.PointsMaterial({ color: tint, map: smokeMap, size: this.display.scale * 2.2, transparent: true, opacity: 0.55, depthTest: false, depthWrite: false })
+			const material = new THREE.PointsMaterial({ color: tint, map: smokeMap, size: this.display.scale * 2.4, transparent: true, opacity: 0.85, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending })
 			const points = new THREE.Points(geometry, material)
 			this.scene.add(points)
 			const mats = (Array.isArray(mesh.material) ? mesh.material : [mesh.material]).filter(Boolean)
 			const baseColors = mats.map((m) => (m.color ? m.color.clone() : null))
-			return { mesh, points, positions, velocities, origin: mesh.position.clone(), baseQuat: mesh.quaternion.clone(), mats, baseColors }
+			const faceMats = celebrationMaterials(mesh, true)
+			const faceBefore = faceMats.map((m) => ({ color: m.emissive.clone(), intensity: m.emissiveIntensity, map: m.emissiveMap }))
+			faceMats.forEach((m) => {
+				if (m.emissiveMap) { m.emissiveMap = null; m.needsUpdate = true }
+				m.emissive.copy(tint)
+			})
+			return { mesh, points, positions, velocities, origin: mesh.position.clone(), baseQuat: mesh.quaternion.clone(), mats, baseColors, faceMats, faceBefore }
 		})
 		const tiltAxis = new THREE.Vector3(1, 0.35, 0).normalize()
 		const wobbleQuat = new THREE.Quaternion()
@@ -671,27 +677,36 @@ class DiceBox {
 				const share = Math.min(1, (now - start) / duration)
 				const seconds = (share * duration) / 1000
 				const angle = fumbleWobble(share)
-				const dim = 1 - 0.25 * Math.sin(share * Math.PI)
+				const dim = 1 - 0.3 * Math.sin(share * Math.PI)
+				const pulse = Math.sin(share * Math.PI)
 				wobbleQuat.setFromAxisAngle(tiltAxis, angle)
-				entries.forEach(({ mesh, points, positions, velocities, origin, baseQuat, mats, baseColors }) => {
+				entries.forEach(({ mesh, points, positions, velocities, origin, baseQuat, mats, baseColors, faceMats }) => {
 					mesh.quaternion.copy(baseQuat).premultiply(wobbleQuat)
 					mats.forEach((m, i) => {
 						if (m.color && baseColors[i]) m.color.copy(baseColors[i]).multiplyScalar(dim)
 					})
+					faceMats.forEach((m) => { m.emissiveIntensity = 0.25 + pulse * 0.85 })
 					velocities.forEach((v, i) => {
 						positions[i * 3] = origin.x + v.x * seconds
 						positions[i * 3 + 1] = origin.y + v.y * seconds
 						positions[i * 3 + 2] = origin.z + v.z * seconds
 					})
 					points.geometry.attributes.position.needsUpdate = true
-					points.material.opacity = 0.55 * (1 - share)
+					points.material.opacity = 0.85 * (1 - share * share)
 				})
 				this.renderer.render(this.scene, this.camera)
 				if (share < 1) { requestAnimationFrame(step); return }
-				entries.forEach(({ mesh, points, baseQuat, mats, baseColors }) => {
+				entries.forEach(({ mesh, points, baseQuat, mats, baseColors, faceMats, faceBefore }) => {
 					mesh.quaternion.copy(baseQuat)
 					mats.forEach((m, i) => {
 						if (m.color && baseColors[i]) m.color.copy(baseColors[i])
+					})
+					faceMats.forEach((m, i) => {
+						if (faceBefore[i].map) {
+							m.emissiveMap = faceBefore[i].map
+							m.needsUpdate = true
+						}
+						m.emissiveIntensity = 0.32
 					})
 					this.scene.remove(points)
 					points.geometry.dispose()

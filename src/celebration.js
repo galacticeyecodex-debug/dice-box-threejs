@@ -78,5 +78,5 @@ export function celebrationMaterials(dicemesh, faceOnly = false) {
  */
 export function fumbleWobble(share) {
 	const t = Math.min(1, Math.max(0, share))
-	return Math.sin(t * Math.PI * 5) * (1 - t) * (1 - t) * 0.22
+	return Math.sin(t * Math.PI * 5) * (1 - t) * (1 - t) * 0.32
 }
