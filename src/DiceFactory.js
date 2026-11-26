@@ -4,6 +4,7 @@ import {MATERIALTYPES} from "./const/materialtypes"
 import {DICE_GEOM} from "./const/dice"
 import { applyGlow, glowLevel } from "./glow.js"
 import { applyDepthSettings } from "./materialDepth.js"
+import { BoundedTextureCache } from "./gpuCache.js"
 
 import * as THREE from "three"
 import * as CANNON from "cannon-es"
@@ -19,7 +20,7 @@ class DiceFactory {
 		// this.dice = {};
 		this.geometries = {};
 
-		this.materials_cache = {};
+		this.materials_cache = new BoundedTextureCache();
 		this.cache_hits = 0;
 		this.cache_misses = 0;
 
@@ -49,7 +50,7 @@ class DiceFactory {
 
 	setBumpMapping(bumpMapping){
 		this.bumpMapping = bumpMapping;
-		this.materials_cache = {};
+		this.materials_cache.clear();
 	}
 
 	/**
@@ -307,9 +308,10 @@ class DiceFactory {
 		if (diceobj.shape == 'd4') {
 			cachestring = diceobj.type + textCache + texture.name + forecolor + outlinecolor + backcolor;
 		}
-		if (allowcache && this.materials_cache[cachestring] != null) {
+		const cached = allowcache ? this.materials_cache.get(cachestring) : null;
+		if (cached != null) {
 			this.cache_hits++;
-			return this.materials_cache[cachestring];
+			return cached;
 		}
 
 		let canvas = document.createElement("canvas");
@@ -559,7 +561,7 @@ class DiceFactory {
 		if (allowcache) {
 			// cache new texture
 			this.cache_misses++;
-			this.materials_cache[cachestring] = {composite:compositetexture,bump:bumpMap,glow:glowMap};
+			this.materials_cache.set(cachestring, {composite:compositetexture,bump:bumpMap,glow:glowMap});
 		}
 
 		return {composite:compositetexture,bump:bumpMap,glow:glowMap};

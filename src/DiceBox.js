@@ -10,6 +10,7 @@ import { THEMES } from './const/themes.js';
 import { debounce } from "./helpers"
 import { throwVector, DEFAULT_THROW_SPREAD } from "./throwVector.js"
 import { glowFrame, lightOf } from "./lightGlow.js"
+import { disposeDieMesh } from "./gpuCache.js"
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js"
 
 /** LoreWeaver fork: how many sound files each dice material and table surface has. */
@@ -803,7 +804,9 @@ class DiceBox {
 			geom.groups[geomindex_value[i]].materialIndex = material_result;
 		}
 
+		if (dicemesh.userData?.clonedGeometry && dicemesh.geometry) dicemesh.geometry.dispose();
 		dicemesh.geometry = geom;
+		dicemesh.userData = { ...(dicemesh.userData || {}), clonedGeometry: true };
 		dicemesh.result = [];
 	}
 
@@ -831,10 +834,14 @@ class DiceBox {
 		}
 		if (num != 0) {
 			if (num < 0) num += 4;
+			const oldMaterials = Array.isArray(dicemesh.material) ? dicemesh.material : (dicemesh.material ? [dicemesh.material] : []);
+			oldMaterials.forEach((mat) => mat?.dispose?.());
 			dicemesh.material = this.DiceFactory.createMaterials(diceobj, 0, 0, false, num);
 		}
 
+		if (dicemesh.userData?.clonedGeometry && dicemesh.geometry) dicemesh.geometry.dispose();
 		dicemesh.geometry = geom;
+		dicemesh.userData = { ...(dicemesh.userData || {}), clonedGeometry: true };
 	}
 
 	//spawns one dicemesh object from a single vectordata object
@@ -1212,6 +1219,7 @@ class DiceBox {
 			this.removeDieLight(dice);
 			this.scene.remove(dice);
 			if (dice.body) this.world.removeBody(dice.body);
+			disposeDieMesh(dice);
 		}
 		this.renderer.render(this.scene, this.camera);
 
@@ -1419,6 +1427,7 @@ class DiceBox {
 				this.scene.remove(mesh);
 				mesh.storeRolledValue('remove');
 				results.push(this.getDiceResults(dieId))
+				disposeDieMesh(mesh);
 			})
 
 			this.renderer.render(this.scene, this.camera);
