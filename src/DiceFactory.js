@@ -7,6 +7,7 @@ import { applyDepthSettings } from "./materialDepth.js"
 import { BoundedTextureCache } from "./gpuCache.js"
 import { canvasFont, resolveEdgeColor } from "./faceStyle.js"
 import { paintProceduralTexture, proceduralPatternOf } from "./proceduralTextures.js"
+import { applyDiceShader, resolveEffect } from "./diceShaders.js"
 
 import * as THREE from "three"
 import * as CANNON from "cannon-es"
@@ -33,6 +34,8 @@ class DiceFactory {
 		this.label_font = '';
 		this.dice_texture = '';
 		this.dice_material = '';
+		this.dice_effect = '';
+		this.shaderTime = { value: 0 };
 
 		this.material_options = {
 			specular: 0xffffff,
@@ -222,6 +225,9 @@ class DiceFactory {
 				mat = new THREE.MeshStandardMaterial(MATERIALTYPES[this.dice_material]);
 				// LoreWeaver fork: shine lets metal, glass and wood reflect the room DiceBox sets up. 0 is the original.
 				mat.envMapIntensity = (MATERIALTYPES[this.dice_material]?.envMapIntensity ?? 1) * (this.shine || 0);
+				// LoreWeaver fork: Fresnel gemstone & elemental surface shaders (src/diceShaders.js).
+				const effectId = resolveEffect(this.dice_effect, this.dice_material);
+				if (effectId) applyDiceShader(mat, effectId, this.shaderTime, this.colordata?.light || null);
 			} else {
 				mat = new THREE.MeshPhongMaterial(this.material_options);
 			}
@@ -587,6 +593,8 @@ class DiceFactory {
 		this.edge_color = resolveEdgeColor(colordata);
 		// LoreWeaver fork: how brightly the set lights its own faces, 0 (the original) to 1 (src/glow.js).
 		this.dice_glow = glowLevel(colordata.glow);
+		// LoreWeaver fork: optional elemental surface shader ('fire', 'frost', 'storm', 'arcane', 'gem').
+		this.dice_effect = colordata.effect || '';
 	}
 
 	/**

@@ -166,8 +166,13 @@ class DiceBox {
 		this.renderer.shadowMap.enabled = this.shadows;
 		this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 		this.renderer.setClearColor(0x000000, 0);
-		// LoreWeaver fork: the light a glowing die casts follows it on every frame, however the frame is drawn.
-		this.scene.onBeforeRender = () => this.updateDieLights();
+		// LoreWeaver fork: the light a glowing die casts and elemental shader time update on every frame.
+		this.scene.onBeforeRender = () => {
+			if (this.DiceFactory?.shaderTime) {
+				this.DiceFactory.shaderTime.value = (typeof performance !== 'undefined' ? performance.now() : Date.now()) / 1000;
+			}
+			this.updateDieLights();
+		};
 
 		// LoreWeaver fork: a soft room for metal, glass and wood to reflect. Without it they all look matte.
 		if (this.shine > 0) {
