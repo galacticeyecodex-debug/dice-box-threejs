@@ -8,6 +8,7 @@ import { BoundedTextureCache } from "./gpuCache.js"
 import { canvasFont, resolveEdgeColor } from "./faceStyle.js"
 import { paintProceduralTexture, proceduralPatternOf } from "./proceduralTextures.js"
 import { applyDiceShader, resolveEffect } from "./diceShaders.js"
+import { d4LabelTables, paintFaceIcon, parseFaceIcon } from "./faceIcons.js"
 
 import * as THREE from "three"
 import * as CANNON from "cannon-es"
@@ -69,7 +70,11 @@ class DiceFactory {
 	 * @returns {DicePreset} A labelled copy, or the die itself when no labels are given.
 	 */
 	labelledPreset(diceobj, faces) {
-		if (!Array.isArray(faces) || !faces.length || diceobj.shape === 'd4') return diceobj;
+		if (!Array.isArray(faces) || !faces.length) return diceobj;
+		if (diceobj.shape === 'd4') {
+			const tables = d4LabelTables(faces);
+			return tables ? Object.assign(Object.create(Object.getPrototypeOf(diceobj)), diceobj, { labels: tables }) : diceobj;
+		}
 		const blanks = ['d2', 'd10'].includes(diceobj.shape) ? [''] : ['', ''];
 		return Object.assign(Object.create(Object.getPrototypeOf(diceobj)), diceobj, { labels: [...blanks, ...faces] });
 	}
@@ -92,6 +97,7 @@ class DiceFactory {
 		this.setMaterialInfo();
 
 		let dicemesh = new THREE.Mesh(geom, this.createMaterials(shown, this.baseScale / 2, 1.0));
+		dicemesh.userData = { ...(dicemesh.userData || {}), shownPreset: shown };
 		dicemesh.result = [];
 		dicemesh.shape = diceobj.shape;
 		dicemesh.rerolls = 0;
@@ -436,6 +442,17 @@ class DiceFactory {
 				isTexture = true;
 				context.drawImage(text, 0,0,text.width,text.height,0,0,canvas.width,canvas.height);
 
+			// LoreWeaver fork: vector icon face ("icon:<name>" or "svg:<pathData>").
+			} else if (parseFaceIcon(text)) {
+				const icon = parseFaceIcon(text);
+				const cx = canvas.width / 2;
+				const cy = diceobj.shape === 'd10' ? canvas.height * 0.56 : canvas.height / 2;
+				const radius = canvas.width * (diceobj.shape === 'd10' ? 0.18 : 0.25);
+				const hasOutline = outlinecolor != 'none' && outlinecolor != backcolor;
+				paintFaceIcon(context, icon, { cx, cy, radius, fill: forecolor, stroke: hasOutline ? outlinecolor : null, lineWidth: 5 });
+				paintFaceIcon(contextBump, icon, { cx, cy, radius, fill: '#000000', stroke: hasOutline ? '#000000' : null, lineWidth: 5 });
+				paintFaceIcon(contextGlow, icon, { cx, cy, radius, fill: forecolor });
+
 			// text-only face
 			} else {
 
@@ -521,6 +538,14 @@ class DiceFactory {
 				if (text[i] instanceof HTMLImageElement) {
 					let scaleTexture = text[i].width / canvas.width;
 					context.drawImage(text[i], 0, 0, text[i].width, text[i].height, (100/scaleTexture), (25/scaleTexture), (60/scaleTexture), (60/scaleTexture));
+				} else if (parseFaceIcon(text[i])) {
+					const icon = parseFaceIcon(text[i]);
+					const hasOutline = outlinecolor != 'none' && outlinecolor != backcolor;
+					const iconY = hh - ts * 0.3;
+					const iconR = ts * 0.1;
+					paintFaceIcon(context, icon, { cx: hw, cy: iconY, radius: iconR, fill: forecolor, stroke: hasOutline ? outlinecolor : null, lineWidth: 4 });
+					paintFaceIcon(contextBump, icon, { cx: hw, cy: iconY, radius: iconR, fill: '#000000', stroke: hasOutline ? '#000000' : null, lineWidth: 4 });
+					paintFaceIcon(contextGlow, icon, { cx: hw, cy: iconY, radius: iconR, fill: forecolor });
 				} else {
 					// attempt to outline the text with a meaningful color
 					if (outlinecolor != 'none' && outlinecolor != backcolor) {

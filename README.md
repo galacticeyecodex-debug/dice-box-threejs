@@ -33,6 +33,7 @@ This fork is used by LoreWeaver Table. It changes the library in these ways (eac
 | Spotlit winning face, elemental bursts & `fumbleDice` (`celebration.js`) | `celebrateDice` spotlights only the landed face by default and supports elemental burst styles (`gold`, `fire`, `frost`, `storm`, `arcane`, `shadow`); `fumbleDice` gives a restrained wobble and smoke puff |
 | Pool-hit illumination & post-roll line-up (`diceArrange.js`) | `highlightDice(ids)` softly lights winning pool dice; `arrangeDice(ids)` glides kept dice into a centered readable row on narrow screens |
 | Tap/hover 3D die raycasting (`dicePick.js`) | `pickDie(clientX, clientY)` raycasts pointer clicks onto resting 3D dice; `setHoverDie(id)` draws a selection ring under the hovered die |
+| Vector icon faces & custom `d4` labels (`faceIcons.js`) | Supports `icon:<name>` (`star`, `sun`, `moon`, `sword`, `shield`, `skull`, `diamond`, `spark`, `fate-plus`, `fate-minus`) and `svg:<pathData>` vector faces, plus custom face labels on `d4` |
 | `dist` is committed | The app installs the fork straight from GitHub |
 
 Tests: `npm test` (Node's own test runner).

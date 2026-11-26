@@ -1116,7 +1116,7 @@ class DiceBox {
 			if (num < 0) num += 4;
 			const oldMaterials = Array.isArray(dicemesh.material) ? dicemesh.material : (dicemesh.material ? [dicemesh.material] : []);
 			oldMaterials.forEach((mat) => mat?.dispose?.());
-			dicemesh.material = this.DiceFactory.createMaterials(diceobj, 0, 0, false, num);
+			dicemesh.material = this.DiceFactory.createMaterials(dicemesh.userData?.shownPreset || diceobj, 0, 0, false, num);
 		}
 
 		if (dicemesh.userData?.clonedGeometry && dicemesh.geometry) dicemesh.geometry.dispose();
