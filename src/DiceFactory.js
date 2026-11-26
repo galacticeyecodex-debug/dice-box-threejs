@@ -42,9 +42,11 @@ class DiceFactory {
 	}
 
 	updateConfig(options = {}){
-		Object.assign(this,options)
-		if(options.scale){
-			this.scaleGeometry()
+		const nextScale = options.baseScale ?? options.scale;
+		Object.assign(this, options);
+		if (nextScale && nextScale !== this._builtScale) {
+			this.baseScale = nextScale;
+			this.scaleGeometry();
 		}
 	}
 
@@ -77,6 +79,7 @@ class DiceFactory {
 		if(!geom) {
 			geom = this.createGeometry(diceobj.shape, diceobj.scale * this.baseScale);
 			this.geometries[type] = geom;
+			this._builtScale = this.baseScale;
 		}
 		if (!geom) return null;
 
@@ -192,18 +195,12 @@ class DiceFactory {
 		return this.geometries[type];
 	}
 
+	// LoreWeaver fork: disposes and clears cached geometries so the next throw rebuilds meshes and Cannon shapes
+	// at the updated baseScale after a viewport resize or tablet orientation change.
 	scaleGeometry(){
-		// console.log('this.geometries :>> ', this.geometries);
-		// Object.entries(this.geometries).forEach(([key,geom]) => {
-		// 	geom.scale(this.scale,this.scale,this.scale)
-		// 	// remove cannon shape
-		// 	// geom.cannon_shape.body.removeShape(geom.cannon_shape.body.shapes[0])
-		// 	// recreate cannon shape with new scale
-		// 	const newShape = this.createGeometry(key, this.scale, true)
-		// 	console.log("🚀 ~ Object.entries ~ newShape", newShape)
-		// 	geom.cannon_shape= newShape
-
-		// })
+		Object.values(this.geometries).forEach((geom) => geom?.dispose?.());
+		this.geometries = {};
+		this._builtScale = this.baseScale;
 	}
 
 	createMaterials(diceobj, size, margin, allowcache = true, d4specialindex = 0) {

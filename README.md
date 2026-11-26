@@ -25,6 +25,7 @@ This fork is used by LoreWeaver Table. It changes the library in these ways (eac
 | Colorsets take `glow` (0 to 1) and `light` (a colour) (`glow.js`, `lightGlow.js`) | A die of light should look lit. A glowing die lights its own faces, so it shines whatever the room's light, and casts light around it: a soft pool on the table that follows it, spreads while it's in the air and fades with it, a faint halo, and a small real light so nearby dice catch the glow. The table is often the page behind a transparent canvas, so the pool is drawn. Above about 0.4, a white die washes out and its numbers are lost |
 | True 3D depth sorting (`materialDepth.js`) | Upstream set `depthTest = false` and `transparent = true` on every die, making overlapping dice draw in spawn order instead of true 3D depth |
 | GPU disposal & bounded LRU texture cache (`gpuCache.js`) | Cloned geometries, per-throw materials, and face canvas textures were never disposed, leaking WebGL memory during long sessions |
+| Responsive orientation & resize (`viewportScale.js`, `scaleGeometry`) | `scaleGeometry` was commented out, leaving stale geometry sizes when rotating tablets or resizing windows; now rebuilds cleanly with `ResizeObserver` |
 | `dist` is committed | The app installs the fork straight from GitHub |
 
 Tests: `npm test` (Node's own test runner).

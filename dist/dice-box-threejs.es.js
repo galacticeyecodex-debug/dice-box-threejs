@@ -15972,7 +15972,9 @@ const hm = {
     }, Object.assign(this, hm, e);
   }
   updateConfig(e = {}) {
-    Object.assign(this, e), e.scale && this.scaleGeometry();
+    var n;
+    const t = (n = e.baseScale) != null ? n : e.scale;
+    Object.assign(this, e), t && t !== this._builtScale && (this.baseScale = t, this.scaleGeometry());
   }
   setBumpMapping(e) {
     this.bumpMapping = e, this.materials_cache.clear();
@@ -15989,7 +15991,7 @@ const hm = {
       return null;
     const s = this.labelledPreset(i, n);
     let o = this.geometries[e];
-    if (o || (o = this.createGeometry(i.shape, i.scale * this.baseScale), this.geometries[e] = o), !o)
+    if (o || (o = this.createGeometry(i.shape, i.scale * this.baseScale), this.geometries[e] = o, this._builtScale = this.baseScale), !o)
       return null;
     this.setMaterialInfo();
     let r = new ke(o, this.createMaterials(s, this.baseScale / 2, 1));
@@ -16040,6 +16042,10 @@ const hm = {
     return this.geometries[e];
   }
   scaleGeometry() {
+    Object.values(this.geometries).forEach((e) => {
+      var t;
+      return (t = e == null ? void 0 : e.dispose) == null ? void 0 : t.call(e);
+    }), this.geometries = {}, this._builtScale = this.baseScale;
   }
   createMaterials(e, t, n, i = !0, s = 0) {
     var h, d, u;
@@ -17151,7 +17157,17 @@ function Em({ level: c, radius: e, height: t, opacity: n = 1 }) {
     light: { intensity: i * 2.2, distance: e * ym }
   };
 }
-class Am extends Qo {
+const Am = 700, Tm = 0.68, Cm = 1.25;
+function Lm(c, e, t = 100) {
+  if (!(c > 0) || !(e > 0) || !(t > 0))
+    return t || 100;
+  const n = Math.min(c, e), i = Math.min(Cm, Math.max(Tm, n / Am));
+  return Math.round(t * i);
+}
+function Rm(c, e) {
+  return Math.abs((Number(c) || 0) - (Number(e) || 0)) >= 2;
+}
+class Dm extends Qo {
   constructor() {
     super();
     const e = new ri();
@@ -17190,7 +17206,7 @@ function Qn(c) {
   const e = new us();
   return e.color.setScalar(c), e;
 }
-const Po = { coin: 6, metal: 12, plastic: 15, wood: 12 }, Tm = { felt: 7, wood_table: 7, wood_tray: 7, metal: 9 }, Cm = ["theme_colorset", "theme_texture", "theme_material", "theme_customColorset"], Lm = {
+const Po = { coin: 6, metal: 12, plastic: 15, wood: 12 }, Fm = { felt: 7, wood_table: 7, wood_tray: 7, metal: 9 }, Pm = ["theme_colorset", "theme_texture", "theme_material", "theme_customColorset"], Im = {
   assetPath: "./",
   framerate: 1 / 60,
   sounds: !1,
@@ -17223,7 +17239,7 @@ const Po = { coin: 6, metal: 12, plastic: 15, wood: 12 }, Tm = { felt: 7, wood_t
   onRemoveDiceComplete: () => {
   }
 };
-class Dm {
+class Bm {
   constructor(e, t = {}) {
     this.initialized = !1, this.container = document.querySelector(e), this.dimensions = new we(this.container.clientWidth, this.container.clientHeight), this.adaptive_timestep = !1, this.last_time = 0, this.running = !1, this.rolling = !1, this.threadid, this.display = {
       currentWidth: null,
@@ -17242,7 +17258,7 @@ class Dm {
       rotate: !0,
       intersected: null,
       dice: []
-    }, Object.assign(this, Lm, t), this.DiceColors = new um({ assetPath: this.assetPath, assetUrl: this.assetUrl }), this.DiceFactory = new as({
+    }, Object.assign(this, Im, t), this.DiceColors = new um({ assetPath: this.assetPath, assetUrl: this.assetUrl }), this.DiceFactory = new as({
       baseScale: this.baseScale,
       shine: this.shine,
       label_glow: this.label_glow
@@ -17257,7 +17273,7 @@ class Dm {
   async initialize() {
     if (this.renderer = new Jo({ antialias: !0, alpha: !0 }), this.container.appendChild(this.renderer.domElement), this.renderer.shadowMap.enabled = this.shadows, this.renderer.shadowMap.type = 2, this.renderer.setClearColor(0, 0), this.scene.onBeforeRender = () => this.updateDieLights(), this.shine > 0) {
       const e = new or(this.renderer);
-      this.scene.environment = e.fromScene(new Am(), 0.04).texture, e.dispose();
+      this.scene.environment = e.fromScene(new Dm(), 0.04).texture, e.dispose();
     }
     this.setDimensions(this.dimensions), this.world.gravity.set(0, 0, -9.8 * this.gravity_multiplier), this.world.broadphase = new oa(), this.world.solver.iterations = 14, this.world.allowSleep = !0, this.makeWorldBox(), this.resizeWorld(), await this.loadTheme({
       colorset: this.theme_colorset,
@@ -17294,7 +17310,7 @@ class Dm {
     e[t] = s.filter(Boolean);
   }
   async loadSounds() {
-    this.sound_dieMaterial = this.soundMaterial(), await this.loadSoundSet(this.sounds_table, this.surface, Tm[this.surface], (e) => `sounds/surfaces/surface_${this.surface}${e}.mp3`), await this.loadSoundSet(this.sounds_dice, "coin", Po.coin, (e) => `sounds/dicehit/dicehit_coin${e}.mp3`), await this.loadSoundSet(this.sounds_dice, this.sound_dieMaterial, Po[this.sound_dieMaterial], (e) => `sounds/dicehit/dicehit_${this.sound_dieMaterial}${e}.mp3`);
+    this.sound_dieMaterial = this.soundMaterial(), await this.loadSoundSet(this.sounds_table, this.surface, Fm[this.surface], (e) => `sounds/surfaces/surface_${this.surface}${e}.mp3`), await this.loadSoundSet(this.sounds_dice, "coin", Po.coin, (e) => `sounds/dicehit/dicehit_coin${e}.mp3`), await this.loadSoundSet(this.sounds_dice, this.sound_dieMaterial, Po[this.sound_dieMaterial], (e) => `sounds/dicehit/dicehit_${this.sound_dieMaterial}${e}.mp3`);
   }
   loadAudio(e) {
     return new Promise((t, n) => {
@@ -17305,7 +17321,7 @@ class Dm {
     });
   }
   async updateConfig(e = {}) {
-    const t = Cm.some((n) => n in e);
+    const t = Pm.some((n) => n in e);
     "theme_colorset" in e && !("theme_customColorset" in e) && (e = { ...e, theme_customColorset: null }), Object.assign(this, e), "gravity_multiplier" in e && this.world && this.world.gravity.set(0, 0, -9.8 * this.gravity_multiplier), "wall_bounce" in e && this.world && this.makeWorldBox(), "shadows" in e && (this.shadows ? this.enableShadows() : this.disableShadows()), "light_intensity" in e && this.light && (this.light.intensity = this.light_intensity), t && await this.loadTheme({
       colorset: this.theme_colorset,
       texture: this.theme_texture,
@@ -17416,7 +17432,12 @@ class Dm {
     });
   }
   setDimensions(e) {
-    switch (this.display.currentWidth = this.container.clientWidth / 2, this.display.currentHeight = this.container.clientHeight / 2, e ? (this.display.containerWidth = e.x, this.display.containerHeight = e.y) : (this.display.containerWidth = this.display.currentWidth, this.display.containerHeight = this.display.currentHeight), this.display.aspect = Math.min(this.display.currentWidth / this.display.containerWidth, this.display.currentHeight / this.display.containerHeight), this.display.scale = Math.sqrt(this.display.containerWidth * this.display.containerWidth + this.display.containerHeight * this.display.containerHeight) / 13, this.makeWorldBox(), this.renderer.setSize(this.display.currentWidth * 2, this.display.currentHeight * 2), this.cameraHeight.max = this.display.currentHeight / this.display.aspect / Math.tan(10 * Math.PI / 180), this.cameraHeight.medium = this.cameraHeight.max / 1.5, this.cameraHeight.far = this.cameraHeight.max, this.cameraHeight.close = this.cameraHeight.max / 2, this.camera && this.scene.remove(this.camera), this.camera = new ft(20, this.display.currentWidth / this.display.currentHeight, 1, this.cameraHeight.max * 1.3), this.animstate) {
+    const t = (e == null ? void 0 : e.x) || this.container.clientWidth, n = (e == null ? void 0 : e.y) || this.container.clientHeight;
+    if (!(t > 0) || !(n > 0))
+      return;
+    this.display.currentWidth = this.container.clientWidth / 2, this.display.currentHeight = this.container.clientHeight / 2, e ? (this.display.containerWidth = e.x, this.display.containerHeight = e.y) : (this.display.containerWidth = this.display.currentWidth, this.display.containerHeight = this.display.currentHeight), this.display.aspect = Math.min(this.display.currentWidth / this.display.containerWidth, this.display.currentHeight / this.display.containerHeight), this.display.scale = Math.sqrt(this.display.containerWidth * this.display.containerWidth + this.display.containerHeight * this.display.containerHeight) / 13;
+    const i = Lm(t, n, this.baseScale);
+    switch (this.DiceFactory && Rm(this.DiceFactory.baseScale, i) && this.DiceFactory.updateConfig({ baseScale: i }), this.makeWorldBox(), this.renderer.setSize(this.display.currentWidth * 2, this.display.currentHeight * 2), this.cameraHeight.max = this.display.currentHeight / this.display.aspect / Math.tan(10 * Math.PI / 180), this.cameraHeight.medium = this.cameraHeight.max / 1.5, this.cameraHeight.far = this.cameraHeight.max, this.cameraHeight.close = this.cameraHeight.max / 2, this.camera && this.scene.remove(this.camera), this.camera = new ft(20, this.display.currentWidth / this.display.currentHeight, 1, this.cameraHeight.max * 1.3), this.animstate) {
       case "selector":
         this.camera.position.z = this.selector.dice.length > 9 ? this.cameraHeight.far : this.selector.dice.length < 6 ? this.cameraHeight.close : this.cameraHeight.medium;
         break;
@@ -17426,17 +17447,17 @@ class Dm {
         this.camera.position.z = this.cameraHeight.far;
     }
     this.camera.lookAt(new I(0, 0, 0));
-    const t = Math.max(this.display.containerWidth, this.display.containerHeight);
-    this.light && this.scene.remove(this.light), this.light_amb && this.scene.remove(this.light_amb), this.light = new Cd(this.color_spotlight, this.light_intensity), this.light.position.set(-t / 2, t / 2, t * 3), this.light.target.position.set(0, 0, 0), this.light.distance = t * 5, this.light.angle = Math.PI / 4, this.light.castShadow = this.shadows, this.light.shadow.camera.near = t / 10, this.light.shadow.camera.far = t * 5, this.light.shadow.camera.fov = 50, this.light.shadow.bias = 1e-3, this.light.shadow.mapSize.width = 1024, this.light.shadow.mapSize.height = 1024, this.scene.add(this.light), this.light_amb = new Ad(16777147, 6776689, this.light_intensity), this.scene.add(this.light_amb), this.desk && this.scene.remove(this.desk);
-    let n = new Sd();
-    n.opacity = 0.5, this.desk = new ke(new Mi(this.display.containerWidth * 6, this.display.containerHeight * 6, 1, 1), n), this.desk.receiveShadow = this.shadows, this.scene.add(this.desk), this.renderer.render(this.scene, this.camera);
+    const s = Math.max(this.display.containerWidth, this.display.containerHeight);
+    this.light && this.scene.remove(this.light), this.light_amb && this.scene.remove(this.light_amb), this.light = new Cd(this.color_spotlight, this.light_intensity), this.light.position.set(-s / 2, s / 2, s * 3), this.light.target.position.set(0, 0, 0), this.light.distance = s * 5, this.light.angle = Math.PI / 4, this.light.castShadow = this.shadows, this.light.shadow.camera.near = s / 10, this.light.shadow.camera.far = s * 5, this.light.shadow.camera.fov = 50, this.light.shadow.bias = 1e-3, this.light.shadow.mapSize.width = 1024, this.light.shadow.mapSize.height = 1024, this.scene.add(this.light), this.light_amb = new Ad(16777147, 6776689, this.light_intensity), this.scene.add(this.light_amb), this.desk && this.scene.remove(this.desk);
+    let o = new Sd();
+    o.opacity = 0.5, this.desk = new ke(new Mi(this.display.containerWidth * 6, this.display.containerHeight * 6, 1, 1), o), this.desk.receiveShadow = this.shadows, this.scene.add(this.desk), this.renderer.render(this.scene, this.camera);
   }
   resizeWorld() {
     const t = fm(() => {
       const n = this.renderer.domElement, i = this.container.clientWidth, s = this.container.clientHeight, o = n.width !== i || n.height !== s;
       return o && this.setDimensions(new we(this.container.clientWidth, this.container.clientHeight)), o;
     });
-    window.addEventListener("resize", t);
+    window.addEventListener("resize", t), window.addEventListener("orientationchange", t), typeof ResizeObserver == "function" && this.container && (this._resizeObserver = new ResizeObserver(t), this._resizeObserver.observe(this.container));
   }
   vectorRand({ x: e, y: t }) {
     let n = Math.random() * Math.PI / 5 - Math.PI / 5 / 2, i = {
@@ -17857,5 +17878,5 @@ class Dm {
   }
 }
 export {
-  Dm as default
+  Bm as default
 };

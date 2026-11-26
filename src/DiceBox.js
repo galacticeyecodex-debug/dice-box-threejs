@@ -11,6 +11,7 @@ import { debounce } from "./helpers"
 import { throwVector, DEFAULT_THROW_SPREAD } from "./throwVector.js"
 import { glowFrame, lightOf } from "./lightGlow.js"
 import { disposeDieMesh } from "./gpuCache.js"
+import { responsiveBaseScale, scaleChanged } from "./viewportScale.js"
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js"
 
 /** LoreWeaver fork: how many sound files each dice material and table surface has. */
@@ -529,6 +530,9 @@ class DiceBox {
 	}
 
 	setDimensions(dimensions) {
+		const rawW = dimensions?.x || this.container.clientWidth;
+		const rawH = dimensions?.y || this.container.clientHeight;
+		if (!(rawW > 0) || !(rawH > 0)) return;
 		this.display.currentWidth = this.container.clientWidth / 2;
 		this.display.currentHeight = this.container.clientHeight / 2;
 		if (dimensions) {
@@ -540,6 +544,12 @@ class DiceBox {
 		}
 		this.display.aspect = Math.min(this.display.currentWidth / this.display.containerWidth, this.display.currentHeight / this.display.containerHeight);
 		this.display.scale = Math.sqrt(this.display.containerWidth * this.display.containerWidth + this.display.containerHeight * this.display.containerHeight) / 13;
+
+		// LoreWeaver fork: keep die geometry scaled cleanly across phone/tablet orientation changes.
+		const nextBaseScale = responsiveBaseScale(rawW, rawH, this.baseScale);
+		if (this.DiceFactory && scaleChanged(this.DiceFactory.baseScale, nextBaseScale)) {
+			this.DiceFactory.updateConfig({ baseScale: nextBaseScale });
+		}
 
 		this.makeWorldBox()
 
@@ -608,6 +618,11 @@ class DiceBox {
 		}
 		const debounceResize = debounce(resize)
 		window.addEventListener("resize", debounceResize)
+		window.addEventListener("orientationchange", debounceResize)
+		if (typeof ResizeObserver === "function" && this.container) {
+			this._resizeObserver = new ResizeObserver(debounceResize)
+			this._resizeObserver.observe(this.container)
+		}
 	}
 
 	vectorRand({x, y}) {
