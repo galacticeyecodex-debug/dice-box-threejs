@@ -12,6 +12,7 @@ import { throwVector, DEFAULT_THROW_SPREAD } from "./throwVector.js"
 import { glowFrame, lightOf } from "./lightGlow.js"
 import { disposeDieMesh } from "./gpuCache.js"
 import { responsiveBaseScale, scaleChanged } from "./viewportScale.js"
+import { dataUrlToArrayBuffer, impactAudioParams, playImpactClip, soundMaterialOf } from "./diceAudio.js"
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js"
 
 /** LoreWeaver fork: how many sound files each dice material and table surface has. */
@@ -274,13 +275,28 @@ class DiceBox {
 	 * @returns {string} "metal", "wood" or "plastic".
 	 */
 	soundMaterial(){
-		const texture = Array.isArray(this.colorData?.texture) ? this.colorData.texture[0] : this.colorData?.texture
-		const match = String(texture?.material || '').match(/wood|metal/)
-		return match ? match[0] : 'plastic'
+		return soundMaterialOf(this.colorData)
 	}
 
 	/**
-	 * Loads one set of sounds once, and keeps it.
+	 * LoreWeaver fork: creates/returns the shared Web Audio context lazily when sound is enabled.
+	 * @returns {AudioContext|null}
+	 */
+	getAudioContext(){
+		if (this._audioCtx) return this._audioCtx
+		const Ctx = typeof window !== 'undefined' && (window.AudioContext || window.webkitAudioContext)
+		if (!Ctx) return null
+		try {
+			this._audioCtx = new Ctx()
+			return this._audioCtx
+		} catch {
+			return null
+		}
+	}
+
+	/**
+	 * Loads one set of sounds once, and keeps it. Skips empty/missing asset URLs cleanly so apps can ship
+	 * compact pitch-varied clip subsets.
 	 * @param {object} store - this.sounds_table or this.sounds_dice.
 	 * @param {string} key - The surface or material name.
 	 * @param {number} count - How many files the set has.
@@ -289,16 +305,43 @@ class DiceBox {
 	async loadSoundSet(store, key, count, pathFor){
 		if (store.hasOwnProperty(key) || !count) return
 		store[key] = []
-		const clips = await Promise.all(Array.from({ length: count }, (_, i) => this.loadAudio(this.assetSource(pathFor(i + 1)))))
+		const clips = await Promise.all(Array.from({ length: count }, (_, i) => {
+			const url = this.assetSource(pathFor(i + 1))
+			return url ? this.decodeOrLoadAudio(url) : Promise.resolve(undefined)
+		}))
 		store[key] = clips.filter(Boolean)
 	}
 
-	async loadSounds(){
+	/**
+	 * LoreWeaver fork: prefers Web Audio AudioBuffer decoding (enabling polyphonic pitch/velocity variation without
+	 * spawning Audio elements), falling back cleanly to loadAudio when Web Audio isn't available.
+	 * @param {string} url - Audio data URI or URL.
+	 * @returns {Promise<AudioBuffer|HTMLAudioElement|undefined>}
+	 */
+	async decodeOrLoadAudio(url){
+		const ctx = this.getAudioContext()
+		if (ctx && typeof ctx.decodeAudioData === 'function') {
+			try {
+				let bytes = dataUrlToArrayBuffer(url)
+				if (!bytes && typeof fetch === 'function') {
+					const response = await fetch(url)
+					if (response.ok) bytes = await response.arrayBuffer()
+				}
+				if (bytes) return await ctx.decodeAudioData(bytes.slice(0))
+			} catch {
+				// Fall back to loadAudio below.
+			}
+		}
+		return this.loadAudio(url)
+	}
+
+	async loadSounds(extraMaterials = []){
 		this.sound_dieMaterial = this.soundMaterial()
 		await this.loadSoundSet(this.sounds_table, this.surface, SURFACE_SOUND_COUNTS[this.surface], (s) => `sounds/surfaces/surface_${this.surface}${s}.mp3`)
 		// the coin sounds are for d2s, whatever the dice are made of
 		await this.loadSoundSet(this.sounds_dice, 'coin', DIE_SOUND_COUNTS.coin, (s) => `sounds/dicehit/dicehit_coin${s}.mp3`)
-		await this.loadSoundSet(this.sounds_dice, this.sound_dieMaterial, DIE_SOUND_COUNTS[this.sound_dieMaterial], (s) => `sounds/dicehit/dicehit_${this.sound_dieMaterial}${s}.mp3`)
+		const materials = [...new Set([this.sound_dieMaterial, ...extraMaterials].filter(Boolean))]
+		await Promise.all(materials.map((mat) => this.loadSoundSet(this.sounds_dice, mat, DIE_SOUND_COUNTS[mat], (s) => `sounds/dicehit/dicehit_${mat}${s}.mp3`)))
 	}
 
 	loadAudio(src){
@@ -876,6 +919,8 @@ class DiceBox {
 			dicemesh.result = [];
 			dicemesh.stopped = 0;
 			dicemesh.castShadow = this.shadows;
+			// LoreWeaver fork: remember this die's own sound material for mixed-look throws.
+			dicemesh.soundMaterial = soundMaterialOf(look ?? this.colorData);
 			this.scene.add(dicemesh);
 			this.diceList.push(dicemesh);
 			// LoreWeaver fork: a die whose set glows lights the table around it.
@@ -896,6 +941,7 @@ class DiceBox {
 		dicemesh.body.linearDamping = 0.1;
 		dicemesh.body.angularDamping = 0.1;
 		dicemesh.body.diceShape = dicemesh.shape;
+		dicemesh.body.soundMaterial = dicemesh.soundMaterial || this.sound_dieMaterial;
 		dicemesh.body.sleepState = 0;
 
 		dicemesh.body.addEventListener('collide', this.eventCollide.bind(this));
@@ -931,23 +977,13 @@ class DiceBox {
 			// also don't bother playing at low speeds
 			if (speed < 250) return;
 
-			let sound;
-
-			// LoreWeaver fork: a set that hasn't loaded yet is skipped instead of throwing an error.
-			const clips = this.sounds_dice[body.diceShape === "d2" ? 'coin' : this.sound_dieMaterial] || [];
-			sound = clips[Math.floor(Math.random() * clips.length)];
-			if(sound){
-				sound.volume = Math.min(speed / 8000, this.volume/100)
-				sound.play().catch(error => {});
+			// LoreWeaver fork: play each die's own material sound with mass/velocity pitch variation.
+			const dieMat = body.diceShape === "d2" ? 'coin' : (body.soundMaterial || this.sound_dieMaterial);
+			const clips = this.sounds_dice[dieMat] || this.sounds_dice[this.sound_dieMaterial] || [];
+			const sound = clips[Math.floor(Math.random() * clips.length)];
+			if (sound) {
+				playImpactClip(sound, this._audioCtx, impactAudioParams({ speed, mass: body.mass, volume: this.volume }));
 			}
-			// if (isPlaying !== undefined) {
-			// 	isPlaying.then(() => {
-			// 		// Autoplay started!
-			// 	}).catch(error => {
-			// 		// Autoplay was prevented.
-			// 		// console.warn('Sounds muted by autoplay')
-			// 	});
-			// }
 			this.lastSoundType = 'dice';
 
 
@@ -960,18 +996,9 @@ class DiceBox {
 
 			let soundlist = this.sounds_table[surface] || [];
 			let sound = soundlist[Math.floor(Math.random() * soundlist.length)];
-			if(sound){
-				sound.volume = Math.min(speed / 8000, this.volume/100)
-				sound.play().catch(error => {});
+			if (sound) {
+				playImpactClip(sound, this._audioCtx, impactAudioParams({ speed, mass: target.mass, volume: this.volume }));
 			}
-			// if (isPlaying !== undefined) {
-			// 	isPlaying.then(() => {
-			// 		// Autoplay started!
-			// 	}).catch(error => {
-			// 		// Autoplay was prevented.
-			// 		// console.warn('Sounds muted by autoplay')
-			// 	});
-			// }
 			this.lastSoundType = 'table';
 		}
 
@@ -1302,6 +1329,9 @@ class DiceBox {
 		// LoreWeaver fork: every die can have its own look in one throw, such as the red, white and red d616.
 		this.dieLooks = looks ? await Promise.all(looks.map((look) => (look ? this.DiceColors.makeColorSet(look) : null))) : null
 		this.dieLabels = looks ? looks.map((look) => look?.labels ?? null) : null
+		if (this.sounds && this.dieLooks) {
+			await this.loadSounds(this.dieLooks.map((look) => soundMaterialOf(look)))
+		}
 		this.notationVectors = this.startClickThrow(notationSting)
 		if(this.notationVectors){
 			// const DL = this.diceList
@@ -1364,6 +1394,9 @@ class DiceBox {
 
 		// LoreWeaver fork: the new dice can have their own looks, such as a rerolled Marvel die.
 		const loaded = looks ? await Promise.all(looks.map((look) => (look ? this.DiceColors.makeColorSet(look) : null))) : []
+		if (this.sounds && loaded.length) {
+			await this.loadSounds(loaded.map((look) => soundMaterialOf(look)))
+		}
 		this.dieLooks = []
 		this.dieLabels = []
 		loaded.forEach((look, i) => {

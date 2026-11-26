@@ -26,6 +26,7 @@ This fork is used by LoreWeaver Table. It changes the library in these ways (eac
 | True 3D depth sorting (`materialDepth.js`) | Upstream set `depthTest = false` and `transparent = true` on every die, making overlapping dice draw in spawn order instead of true 3D depth |
 | GPU disposal & bounded LRU texture cache (`gpuCache.js`) | Cloned geometries, per-throw materials, and face canvas textures were never disposed, leaking WebGL memory during long sessions |
 | Responsive orientation & resize (`viewportScale.js`, `scaleGeometry`) | `scaleGeometry` was commented out, leaving stale geometry sizes when rotating tablets or resizing windows; now rebuilds cleanly with `ResizeObserver` |
+| Per-die sound materials & Web Audio pitch/velocity synthesis (`diceAudio.js`) | Mixed-material throws play each die's own sound, Web Audio shifts pitch by die mass and impact speed, and empty/pruned clip URLs are skipped cleanly |
 | `dist` is committed | The app installs the fork straight from GitHub |
 
 Tests: `npm test` (Node's own test runner).
