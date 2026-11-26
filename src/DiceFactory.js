@@ -6,6 +6,7 @@ import { applyGlow, glowLevel } from "./glow.js"
 import { applyDepthSettings } from "./materialDepth.js"
 import { BoundedTextureCache } from "./gpuCache.js"
 import { canvasFont, resolveEdgeColor } from "./faceStyle.js"
+import { paintProceduralTexture, proceduralPatternOf } from "./proceduralTextures.js"
 
 import * as THREE from "three"
 import * as CANNON from "cannon-es"
@@ -352,7 +353,11 @@ class DiceFactory {
 		contextBump.fillRect(0, 0, canvasBump.width, canvasBump.height);
 
 		//create underlying texture
-		if (texture.texture && texture.name != '' && texture.name != 'none') {
+		const procedural = proceduralPatternOf(texture);
+		if (procedural) {
+			paintProceduralTexture(procedural, { ctx: context, bumpCtx: contextBump, glowCtx: contextGlow, size: canvas.width, seed: index + 1, accent: forecolor });
+			context.globalCompositeOperation = 'source-over';
+		} else if (texture.texture && texture.name != '' && texture.name != 'none') {
 			context.globalCompositeOperation = texture.composite || 'source-over';
 			context.drawImage(texture.texture, 0, 0, canvas.width, canvas.height);
 			context.globalCompositeOperation = 'source-over';

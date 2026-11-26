@@ -228,6 +228,47 @@ export const TEXTURELIST = {
 		source_bump: '',
 		material: ''
 	},
+	// LoreWeaver fork: zero-asset procedural canvas textures (src/proceduralTextures.js).
+	'swirl': {
+		name: 'Resin Swirl',
+		procedural: 'swirl',
+		composite: 'source-over',
+		source: '',
+		source_bump: '',
+		material: 'glass'
+	},
+	'marble_vein': {
+		name: 'Marble Veins',
+		procedural: 'marble_vein',
+		composite: 'source-over',
+		source: '',
+		source_bump: '',
+		material: 'glass'
+	},
+	'nebula': {
+		name: 'Nebula',
+		procedural: 'nebula',
+		composite: 'source-over',
+		source: '',
+		source_bump: '',
+		material: 'glass'
+	},
+	'hammered': {
+		name: 'Hammered Metal',
+		procedural: 'hammered',
+		composite: 'source-over',
+		source: '',
+		source_bump: '',
+		material: 'metal'
+	},
+	'magma': {
+		name: 'Magma Cracks',
+		procedural: 'magma',
+		composite: 'source-over',
+		source: '',
+		source_bump: '',
+		material: 'metal'
+	},
 	'': {
 		name: '~ Preset ~',
 		composite: 'source-over',

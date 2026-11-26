@@ -28,6 +28,7 @@ This fork is used by LoreWeaver Table. It changes the library in these ways (eac
 | Responsive orientation & resize (`viewportScale.js`, `scaleGeometry`) | `scaleGeometry` was commented out, leaving stale geometry sizes when rotating tablets or resizing windows; now rebuilds cleanly with `ResizeObserver` |
 | Per-die sound materials & Web Audio pitch/velocity synthesis (`diceAudio.js`) | Mixed-material throws play each die's own sound, Web Audio shifts pitch by die mass and impact speed, and empty/pruned clip URLs are skipped cleanly |
 | Per-set typography & bevel `edge` colour (`faceStyle.js`) | Colorsets can specify `font` (`serif`, `sans`, `mono`, `display`, or CSS family) and distinct chamfer `edge` colour |
+| Zero-asset procedural textures (`proceduralTextures.js`) | Seeded per-face `swirl`, `marble_vein`, `nebula`, `hammered`, and `magma` canvas patterns (with bump & glow) requiring no external `.webp` files |
 | `dist` is committed | The app installs the fork straight from GitHub |
 
 Tests: `npm test` (Node's own test runner).
