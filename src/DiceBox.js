@@ -404,7 +404,7 @@ class DiceBox {
 	 * @param {number} [options.duration=420] - Milliseconds to ease in.
 	 * @returns {Promise<void>}
 	 */
-	highlightDice(ids = [], { color = 0xffe07a, intensity = 0.45, duration = 420 } = {}){
+	highlightDice(ids = [], { color = 0xffe07a, intensity = 0.22, duration = 420 } = {}){
 		const meshes = ids.map((id) => this.diceList[id]).filter(Boolean)
 		if (!meshes.length || !this.renderer) return Promise.resolve()
 		const tint = new THREE.Color(color)
@@ -512,8 +512,8 @@ class DiceBox {
 		if (!mesh.geometry.boundingSphere) mesh.geometry.computeBoundingSphere()
 		const radius = mesh.geometry.boundingSphere?.radius || this.DiceFactory.baseScale
 		if (!this._hoverRing) {
-			const geom = new THREE.RingGeometry(0.95, 1.28, 36)
-			const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.78, side: THREE.DoubleSide, depthWrite: false })
+			const geom = new THREE.RingGeometry(1.12, 1.26, 48)
+			const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.68, side: THREE.DoubleSide, depthWrite: false })
 			this._hoverRing = new THREE.Mesh(geom, mat)
 			this.scene.add(this._hoverRing)
 		}

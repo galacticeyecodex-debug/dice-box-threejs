@@ -63,13 +63,22 @@ export const BUILTIN_ICONS = {
 	},
 	skull: (ctx, r) => {
 		ctx.beginPath()
-		ctx.arc(0, -r * 0.12, r * 0.68, Math.PI, 0, false)
-		ctx.lineTo(r * 0.62, r * 0.28)
-		ctx.lineTo(r * 0.38, r * 0.44)
-		ctx.lineTo(r * 0.34, r * 0.82)
-		ctx.lineTo(-r * 0.34, r * 0.82)
-		ctx.lineTo(-r * 0.38, r * 0.44)
-		ctx.lineTo(-r * 0.62, r * 0.28)
+		ctx.arc(0, -r * 0.14, r * 0.66, Math.PI, 0, false)
+		ctx.lineTo(r * 0.6, r * 0.22)
+		ctx.lineTo(r * 0.36, r * 0.42)
+		ctx.lineTo(r * 0.32, r * 0.82)
+		ctx.lineTo(-r * 0.32, r * 0.82)
+		ctx.lineTo(-r * 0.36, r * 0.42)
+		ctx.lineTo(-r * 0.6, r * 0.22)
+		ctx.closePath()
+		// Cut out left & right eye sockets + nose with counter-clockwise winding (nonzero fill rule).
+		ctx.moveTo(-r * 0.1, -r * 0.04)
+		ctx.arc(-r * 0.25, -r * 0.04, r * 0.15, 0, Math.PI * 2, true)
+		ctx.moveTo(r * 0.4, -r * 0.04)
+		ctx.arc(r * 0.25, -r * 0.04, r * 0.15, 0, Math.PI * 2, true)
+		ctx.moveTo(0, r * 0.14)
+		ctx.lineTo(-r * 0.09, r * 0.34)
+		ctx.lineTo(r * 0.09, r * 0.34)
 		ctx.closePath()
 	},
 	diamond: (ctx, r) => {

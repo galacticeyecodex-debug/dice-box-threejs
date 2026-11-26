@@ -16206,7 +16206,7 @@ const vr = {
     a.beginPath(), a.moveTo(0, -e * 0.9), a.lineTo(e * 0.78, -e * 0.58), a.lineTo(e * 0.68, e * 0.18), a.quadraticCurveTo(e * 0.45, e * 0.72, 0, e * 0.95), a.quadraticCurveTo(-e * 0.45, e * 0.72, -e * 0.68, e * 0.18), a.lineTo(-e * 0.78, -e * 0.58), a.closePath();
   },
   skull: (a, e) => {
-    a.beginPath(), a.arc(0, -e * 0.12, e * 0.68, Math.PI, 0, !1), a.lineTo(e * 0.62, e * 0.28), a.lineTo(e * 0.38, e * 0.44), a.lineTo(e * 0.34, e * 0.82), a.lineTo(-e * 0.34, e * 0.82), a.lineTo(-e * 0.38, e * 0.44), a.lineTo(-e * 0.62, e * 0.28), a.closePath();
+    a.beginPath(), a.arc(0, -e * 0.14, e * 0.66, Math.PI, 0, !1), a.lineTo(e * 0.6, e * 0.22), a.lineTo(e * 0.36, e * 0.42), a.lineTo(e * 0.32, e * 0.82), a.lineTo(-e * 0.32, e * 0.82), a.lineTo(-e * 0.36, e * 0.42), a.lineTo(-e * 0.6, e * 0.22), a.closePath(), a.moveTo(-e * 0.1, -e * 0.04), a.arc(-e * 0.25, -e * 0.04, e * 0.15, 0, Math.PI * 2, !0), a.moveTo(e * 0.4, -e * 0.04), a.arc(e * 0.25, -e * 0.04, e * 0.15, 0, Math.PI * 2, !0), a.moveTo(0, e * 0.14), a.lineTo(-e * 0.09, e * 0.34), a.lineTo(e * 0.09, e * 0.34), a.closePath();
   },
   diamond: (a, e) => {
     a.beginPath(), a.moveTo(0, -e * 0.95), a.lineTo(e * 0.72, 0), a.lineTo(0, e * 0.95), a.lineTo(-e * 0.72, 0), a.closePath();
@@ -17839,7 +17839,7 @@ class pg {
       material: this.theme_material
     }), this.sounds && (t || "sounds" in e) && this.initialized && await this.loadSounds();
   }
-  highlightDice(e = [], { color: t = 16769146, intensity: n = 0.45, duration: i = 420 } = {}) {
+  highlightDice(e = [], { color: t = 16769146, intensity: n = 0.22, duration: i = 420 } = {}) {
     const s = e.map((h) => this.diceList[h]).filter(Boolean);
     if (!s.length || !this.renderer)
       return Promise.resolve();
@@ -17912,7 +17912,7 @@ class pg {
     n.geometry.boundingSphere || n.geometry.computeBoundingSphere();
     const i = ((s = n.geometry.boundingSphere) == null ? void 0 : s.radius) || this.DiceFactory.baseScale;
     if (!this._hoverRing) {
-      const o = new Er(0.95, 1.28, 36), r = new Ei({ color: t, transparent: !0, opacity: 0.78, side: 2, depthWrite: !1 });
+      const o = new Er(1.12, 1.26, 48), r = new Ei({ color: t, transparent: !0, opacity: 0.68, side: 2, depthWrite: !1 });
       this._hoverRing = new Ge(o, r), this.scene.add(this._hoverRing);
     }
     this._hoverRing.material.color.set(t), this._hoverRing.position.set(n.position.x, n.position.y, 1.2), this._hoverRing.scale.set(i, i, 1), this._hoverRing.visible = !0, this.renderer && this.camera && this.renderer.render(this.scene, this.camera);
